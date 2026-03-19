@@ -9,13 +9,14 @@ local Tracker = {
     total_catches = 0,
     boat_expiration_ms = nil,
     marker_elapsed_ms = Constants.MARKER_SCAN_MS,
+    equip_elapsed_ms = 500,
     icon_cache = {},
     hotkey_cache = {},
+    has_fishing_rod = false,
     ui_state = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
-    last_action_buff_id = nil,
-    session_started_ms = nil
+    last_action_buff_id = nil
 }
 
 local findLatestCaughtForUnit
@@ -56,6 +57,48 @@ local function normalizeDeltaMs(dt)
         value = value * 1000
     end
     return value
+end
+
+local function tooltipMentionsFishingRod(value)
+    if type(value) ~= "string" or value == "" then
+        return false
+    end
+    local lower = string.lower(value)
+    return string.find(lower, "fishing rod", 1, true) ~= nil
+        or (string.find(lower, "fishing", 1, true) ~= nil and string.find(lower, "rod", 1, true) ~= nil)
+end
+
+local function updateEquippedFishingRod(deltaMs)
+    Tracker.equip_elapsed_ms = Tracker.equip_elapsed_ms + deltaMs
+    if Tracker.equip_elapsed_ms < 500 then
+        return
+    end
+    Tracker.equip_elapsed_ms = 0
+
+    local foundRod = false
+    if api.Equipment ~= nil then
+        for slotIdx = 0, 20 do
+            local tooltipText = nil
+            local tooltipInfo = nil
+            if api.Equipment.GetEquippedItemTooltipText ~= nil then
+                pcall(function()
+                    tooltipText = api.Equipment:GetEquippedItemTooltipText("player", slotIdx)
+                end)
+            end
+            if api.Equipment.GetEquippedItemTooltipInfo ~= nil then
+                pcall(function()
+                    tooltipInfo = api.Equipment:GetEquippedItemTooltipInfo(slotIdx)
+                end)
+            end
+            if tooltipMentionsFishingRod(tooltipText)
+                or tooltipMentionsFishingRod(tooltipInfo ~= nil and tooltipInfo.name or nil)
+                or tooltipMentionsFishingRod(tooltipInfo ~= nil and tooltipInfo.item_name or nil) then
+                foundRod = true
+                break
+            end
+        end
+    end
+    Tracker.has_fishing_rod = foundRod
 end
 
 local function getBuffIconPath(buffId)
@@ -150,18 +193,12 @@ local function resetMarker(index)
     }
 end
 
-local function startSession(nowMs)
-    if Tracker.session_started_ms == nil then
-        Tracker.session_started_ms = nowMs
-    end
-end
-
-local function rememberCaughtTarget(unitId, nowMs)
+local function rememberCaughtTarget(unitId, nowMs, fishName, allowExistingReuse)
     if unitId == nil then
         return nil
     end
     local existing = findLatestCaughtForUnit(unitId)
-    if existing ~= nil then
+    if allowExistingReuse and existing ~= nil then
         local remainingMs = Constants.MARKER_TIMER_MS - (nowMs - existing.death_time_ms)
         if remainingMs > 0 then
             return existing
@@ -170,16 +207,17 @@ local function rememberCaughtTarget(unitId, nowMs)
 
     Tracker.catch_serial = Tracker.catch_serial + 1
     Tracker.total_catches = Tracker.total_catches + 1
-    startSession(nowMs)
     local caught = {
         serial = Tracker.catch_serial,
         unit_id = unitId,
-        death_time_ms = nowMs
+        death_time_ms = nowMs,
+        fish_name = fishName
     }
     table.insert(Tracker.caught, caught)
     while #Tracker.caught > Constants.AUTO_CATCH_COUNT do
         table.remove(Tracker.caught, 1)
     end
+    Shared.RecordFishingCatch(fishName, nowMs)
     return caught
 end
 
@@ -230,6 +268,7 @@ local function buildTargetState(nowMs)
         x = nil,
         y = nil,
         icon_path = nil,
+        icon_placeholder_text = "",
         fish_name = "",
         status_text = "",
         coach_text = "",
@@ -244,16 +283,12 @@ local function buildTargetState(nowMs)
 
     local targetUnitId = api.Unit:GetUnitId("target")
     if targetUnitId == nil then
-        Tracker.last_target_unit_id = nil
-        Tracker.last_target_health = nil
         Tracker.last_action_buff_id = nil
         return targetState
     end
 
     local targetInfo = api.Unit:GetUnitInfoById(targetUnitId)
     if targetInfo == nil then
-        Tracker.last_target_unit_id = targetUnitId
-        Tracker.last_target_health = nil
         Tracker.last_action_buff_id = nil
         return targetState
     end
@@ -291,7 +326,6 @@ local function buildTargetState(nowMs)
         return targetState
     end
 
-    startSession(nowMs)
     local x, y = getUnitScreenPosition("target")
     targetState.visible = settings.show_target
     targetState.x = x
@@ -304,8 +338,9 @@ local function buildTargetState(nowMs)
     if fishHealth ~= nil and fishHealth <= 0 then
         Tracker.last_action_buff_id = nil
         local latestCaught = findLatestCaughtForUnit(targetUnitId)
+        local canReuseExisting = not wasAliveBefore and not isNewTarget and Tracker.last_target_health ~= nil
         if isNewTarget or wasAliveBefore or Tracker.last_target_health == nil then
-            latestCaught = rememberCaughtTarget(targetUnitId, nowMs)
+            latestCaught = rememberCaughtTarget(targetUnitId, nowMs, targetInfo.name, canReuseExisting)
         end
         targetState.icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID)
         targetState.status_text = settings.show_status_text and "Fish caught" or ""
@@ -355,13 +390,13 @@ local function buildTargetState(nowMs)
         end
     elseif strengthBuff ~= nil then
         Tracker.last_action_buff_id = nil
-        targetState.icon_path = getBuffIconPath(Constants.WAITING_ICON_BUFF_ID)
+        targetState.icon_placeholder_text = "TUG"
         targetState.status_text = settings.show_status_text and "Strength contest" or ""
         targetState.coach_text = settings.show_coach and "HOLD ON" or ""
         targetState.coach_hint = settings.show_coach_hint and "Keep pace and wait for the next prompt." or ""
     elseif settings.show_wait then
         Tracker.last_action_buff_id = nil
-        targetState.icon_path = getBuffIconPath(Constants.WAITING_ICON_BUFF_ID)
+        targetState.icon_placeholder_text = "GLUB"
         targetState.status_text = settings.show_status_text and "Waiting for prompt" or ""
         targetState.coach_text = settings.show_coach and "READY" or ""
         targetState.coach_hint = settings.show_coach_hint and "Watch for the next fishing callout." or ""
@@ -468,28 +503,92 @@ local function buildBoatState(nowMs)
     return boatState
 end
 
+local function expireIdleSession(nowMs)
+    local activeSession = Shared.GetActiveFishingSession()
+    if activeSession == nil then
+        return
+    end
+    local referenceMs = tonumber(activeSession.last_catch_ms) or tonumber(activeSession.started_ms) or nowMs
+    if (nowMs - referenceMs) >= Constants.SESSION_IDLE_TIMEOUT_MS then
+        Shared.EndFishingSession(nowMs)
+    end
+end
+
 local function buildSessionState(nowMs, markers, catches)
     local settings = Shared.EnsureSettings()
     local session = {
         visible = false,
+        title_text = "",
         elapsed_text = "",
         catches_text = "",
         active_text = "",
-        marked_text = ""
+        marked_text = "",
+        fish_lines = {},
+        history = {},
+        has_active = false
     }
 
-    if not settings.show_session or Tracker.session_started_ms == nil then
+    if not settings.show_session or not Tracker.has_fishing_rod then
         return session
     end
 
-    local elapsedSeconds = math.max(0, math.floor((nowMs - Tracker.session_started_ms) / 1000))
-    local minutes = math.floor(elapsedSeconds / 60)
-    local seconds = elapsedSeconds % 60
     session.visible = true
-    session.elapsed_text = string.format("Time %02d:%02d", minutes, seconds)
-    session.catches_text = "Catches " .. tostring(Tracker.total_catches)
-    session.active_text = "Active " .. tostring(#catches)
-    session.marked_text = "Marked " .. tostring(#markers)
+    local activeSession = Shared.GetActiveFishingSession()
+    if activeSession ~= nil then
+        session.has_active = true
+        session.title_text = tostring(activeSession.title or "Current Session")
+        session.elapsed_text = "Time " .. Shared.FormatDurationMs(nowMs - (tonumber(activeSession.started_ms) or nowMs))
+        session.catches_text = "Catches " .. tostring(tonumber(activeSession.catches) or 0)
+        session.active_text = "Active " .. tostring(#catches)
+        session.marked_text = "Marked " .. tostring(#markers)
+
+        local fishRows = {}
+        local fishCounts = type(activeSession.fish_counts) == "table" and activeSession.fish_counts or {}
+        for fishName, count in pairs(fishCounts) do
+            table.insert(fishRows, {
+                fish_name = tostring(fishName),
+                count = tonumber(count) or 0
+            })
+        end
+        table.sort(fishRows, function(a, b)
+            if a.count == b.count then
+                return a.fish_name < b.fish_name
+            end
+            return a.count > b.count
+        end)
+        for index = 1, math.min(4, #fishRows) do
+            local row = fishRows[index]
+            table.insert(session.fish_lines, string.format("%s x%d", row.fish_name, row.count))
+        end
+    else
+        session.title_text = "No active session"
+        session.elapsed_text = "Start a session to log catches."
+        session.catches_text = ""
+        session.active_text = ""
+        session.marked_text = ""
+    end
+
+    local savedSessions = Shared.GetSavedFishingSessions()
+    for index = 1, math.min(4, #savedSessions) do
+        local saved = savedSessions[index]
+        local fishRows = {}
+        if type(saved.fish_counts) == "table" then
+            for fishName, count in pairs(saved.fish_counts) do
+                table.insert(fishRows, string.format("%s x%d", tostring(fishName), tonumber(count) or 0))
+            end
+            table.sort(fishRows)
+        end
+        table.insert(session.history, {
+            id = saved.id,
+            title = tostring(saved.title or ("Session " .. tostring(index))),
+            detail = string.format(
+                "%s | %s catches",
+                Shared.FormatDurationMs(saved.duration_ms or 0),
+                tostring(tonumber(saved.catches) or 0)
+            ),
+            fish = table.concat(fishRows, ", ")
+        })
+    end
     return session
 end
 
@@ -500,17 +599,19 @@ function Tracker.Reset()
     Tracker.total_catches = 0
     Tracker.boat_expiration_ms = nil
     Tracker.marker_elapsed_ms = Constants.MARKER_SCAN_MS
+    Tracker.equip_elapsed_ms = 500
     Tracker.hotkey_cache = {}
+    Tracker.has_fishing_rod = false
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
     Tracker.last_action_buff_id = nil
-    Tracker.session_started_ms = nil
     Tracker.ui_state = {
         target = {
             visible = false,
             x = nil,
             y = nil,
             icon_path = nil,
+            icon_placeholder_text = "",
             fish_name = "",
             status_text = "",
             coach_text = "",
@@ -531,10 +632,14 @@ function Tracker.Reset()
         },
         session = {
             visible = false,
+            title_text = "",
             elapsed_text = "",
             catches_text = "",
             active_text = "",
-            marked_text = ""
+            marked_text = "",
+            fish_lines = {},
+            history = {},
+            has_active = false
         }
     }
 end
@@ -550,12 +655,14 @@ function Tracker.Update(dt)
 
     local deltaMs = normalizeDeltaMs(dt)
     Tracker.marker_elapsed_ms = Tracker.marker_elapsed_ms + deltaMs
+    updateEquippedFishingRod(deltaMs)
     if Tracker.marker_elapsed_ms >= Constants.MARKER_SCAN_MS then
         Tracker.marker_elapsed_ms = 0
         scanMarkers()
     end
 
     local nowMs = getNowMs()
+    expireIdleSession(nowMs)
     local markers = buildMarkerStates(nowMs)
     local catches = buildCaughtStates(nowMs)
     Tracker.ui_state = {

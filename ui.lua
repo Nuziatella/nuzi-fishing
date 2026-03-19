@@ -6,6 +6,8 @@ local Ui = {
     target_canvas = nil,
     target_bg = nil,
     target_icon = nil,
+    target_icon_mask = nil,
+    target_icon_text = nil,
     target_fish_name = nil,
     target_status = nil,
     target_coach = nil,
@@ -19,7 +21,11 @@ local Ui = {
     catch_rows = {},
     boat_row = nil,
     session_window = nil,
+    session_title = nil,
     session_labels = {},
+    session_buttons = {},
+    session_fish_labels = {},
+    session_history_rows = {},
     settings_window = nil,
     settings_controls = {},
     on_settings_changed = nil
@@ -389,6 +395,24 @@ local function toggleSetting(settingKey)
     notifySettingsChanged()
 end
 
+local function startFishingSession()
+    Shared.StartFishingSession(Shared.GetUiNowMs())
+    notifySettingsChanged()
+end
+
+local function endFishingSession()
+    Shared.EndFishingSession(Shared.GetUiNowMs())
+    notifySettingsChanged()
+end
+
+local function deleteFishingSession(sessionId)
+    if sessionId == nil then
+        return
+    end
+    Shared.DeleteFishingSession(sessionId)
+    notifySettingsChanged()
+end
+
 local function createSettingsRow(parent, rowIndex, title, settingKey)
     local top = 56 + ((rowIndex - 1) * 30)
     local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 160, 24, 14, getAlignLeft())
@@ -429,6 +453,15 @@ local function createTargetHud()
     Ui.target_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 12, 34)
 
     if canvas.CreateColorDrawable ~= nil then
+        Ui.target_icon_mask = canvas:CreateColorDrawable(0.08, 0.18, 0.24, 0.88, "overlay")
+        Ui.target_icon_mask:AddAnchor("TOPLEFT", Ui.target_icon, "TOPLEFT", 1, 1)
+        Ui.target_icon_mask:AddAnchor("BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", -1, -1)
+        Ui.target_icon_mask:Show(false)
+    end
+    Ui.target_icon_text = createLabel("NuziFishingIconText", canvas, 6, 52, 60, 18, 16, getAlignCenter(), { 0.82, 0.98, 1, 1 })
+    safeSetVisible(Ui.target_icon_text, false)
+
+    if canvas.CreateColorDrawable ~= nil then
         Ui.target_glow = canvas:CreateColorDrawable(1, 1, 1, 0, "background")
         Ui.target_glow:AddAnchor("TOPLEFT", Ui.target_icon, -4, -4)
         Ui.target_glow:AddAnchor("BOTTOMRIGHT", Ui.target_icon, 4, 4)
@@ -440,7 +473,7 @@ local function createTargetHud()
     Ui.target_coach = createLabel("NuziFishingCoach", canvas, 70, 52, 240, 28, 24, getAlignLeft(), { 1, 0.82, 0.25, 1 })
     Ui.target_hint = createLabel("NuziFishingHint", canvas, 70, 82, 290, 18, 13, getAlignLeft(), { 0.9, 0.9, 0.9, 1 })
     Ui.target_keybind = createLabel("NuziFishingKeybind", canvas, 70, 102, 210, 18, 13, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, 286, 102, 70, 18, 16, getAlignLeft(), { 0, 1, 0, 1 })
+    Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, -4, 94, 72, 18, 16, getAlignCenter(), { 0, 1, 0, 1 })
 
     Ui.strength_icon = createIcon("NuziFishingStrengthIcon", canvas)
     Ui.strength_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 360, 34)
@@ -509,20 +542,58 @@ local function createSessionWindow()
     end
 
     local window = api.Interface:CreateEmptyWindow("NuziFishingSession")
-    window:SetExtent(170, 76)
+    window:SetExtent(360, 268)
     window:Show(false)
     Ui.session_window = window
     applySessionPosition()
     enableSessionDrag(window)
     if window.CreateColorDrawable ~= nil then
-        local bg = window:CreateColorDrawable(0.05, 0.05, 0.05, 0.72, "background")
-        bg:AddAnchor("TOPLEFT", window, "TOPLEFT", -8, -6)
-        bg:AddAnchor("BOTTOMRIGHT", window, "BOTTOMRIGHT", 8, 6)
+        local bg = window:CreateColorDrawable(0.05, 0.05, 0.05, 0.78, "background")
+        bg:AddAnchor("TOPLEFT", window, "TOPLEFT", -10, -8)
+        bg:AddAnchor("BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
     end
-    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 0, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 18, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
-    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 0, 36, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
-    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 0, 54, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
+    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 220, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 234, 0, 54, 24, startFishingSession)
+    Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 294, 0, 54, 24, endFishingSession)
+    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 30, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 48, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
+    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 170, 30, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
+    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 170, 48, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
+    Ui.session_labels.fish_header = createLabel("NuziFishingSessionFishHeader", window, 0, 76, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    safeSetText(Ui.session_labels.fish_header, "Current Session Fish")
+    for index = 1, 4 do
+        Ui.session_fish_labels[index] = createLabel(
+            "NuziFishingSessionFish" .. tostring(index),
+            window,
+            0,
+            96 + ((index - 1) * 18),
+            330,
+            18,
+            13,
+            getAlignLeft(),
+            { 0.96, 0.96, 0.96, 1 }
+        )
+    end
+    Ui.session_labels.history_header = createLabel("NuziFishingSessionHistoryHeader", window, 0, 176, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    safeSetText(Ui.session_labels.history_header, "Recent Sessions")
+    for index = 1, 4 do
+        local rowIndex = index
+        local rowY = 198 + ((index - 1) * 34)
+        local title = createLabel("NuziFishingSessionHistoryTitle" .. tostring(index), window, 0, rowY, 228, 16, 13, getAlignLeft(), { 1, 1, 1, 1 })
+        local detail = createLabel("NuziFishingSessionHistoryDetail" .. tostring(index), window, 0, rowY + 14, 280, 16, 12, getAlignLeft(), { 0.85, 0.85, 0.85, 1 })
+        local remove = createButton("NuziFishingSessionDelete" .. tostring(index), window, "X", 314, rowY + 2, 30, 22, function()
+            local row = Ui.session_history_rows[rowIndex]
+            if row ~= nil then
+                deleteFishingSession(row.session_id)
+            end
+        end)
+        Ui.session_history_rows[index] = {
+            title = title,
+            detail = detail,
+            remove = remove,
+            session_id = nil
+        }
+    end
 end
 
 local function createSettingsWindow()
@@ -592,10 +663,17 @@ function Ui.Render(uiState)
     end
 
     local target = uiState.target or {}
-    local targetVisible = target.visible and type(target.icon_path) == "string" and target.icon_path ~= ""
+    local hasPlaceholder = type(target.icon_placeholder_text) == "string" and target.icon_placeholder_text ~= ""
+    local targetVisible = target.visible and ((type(target.icon_path) == "string" and target.icon_path ~= "") or hasPlaceholder)
     safeSetVisible(Ui.target_canvas, targetVisible)
     if targetVisible then
-        safeSetIcon(Ui.target_icon, target.icon_path)
+        if type(target.icon_path) == "string" and target.icon_path ~= "" then
+            safeSetIcon(Ui.target_icon, target.icon_path)
+        end
+        safeSetVisible(Ui.target_icon, true)
+        safeSetDrawableVisible(Ui.target_icon_mask, hasPlaceholder)
+        safeSetText(Ui.target_icon_text, hasPlaceholder and target.icon_placeholder_text or "")
+        safeSetVisible(Ui.target_icon_text, hasPlaceholder)
         safeSetText(Ui.target_fish_name, target.fish_name or "")
         safeSetText(Ui.target_status, target.status_text or "")
         safeSetText(Ui.target_coach, target.coach_text or "")
@@ -625,6 +703,8 @@ function Ui.Render(uiState)
         end
         safeSetText(Ui.strength_timer, target.strength_timer_text or "")
     else
+        safeSetDrawableVisible(Ui.target_icon_mask, false)
+        safeSetVisible(Ui.target_icon_text, false)
         safeSetDrawableVisible(Ui.target_glow, false)
     end
 
@@ -683,10 +763,46 @@ function Ui.Render(uiState)
     local session = uiState.session or {}
     safeSetVisible(Ui.session_window, session.visible)
     if session.visible then
+        safeSetText(Ui.session_title, session.title_text or "")
         safeSetText(Ui.session_labels.elapsed, session.elapsed_text or "")
         safeSetText(Ui.session_labels.catches, session.catches_text or "")
         safeSetText(Ui.session_labels.active, session.active_text or "")
         safeSetText(Ui.session_labels.marked, session.marked_text or "")
+        safeSetVisible(Ui.session_buttons.start, not session.has_active)
+        safeSetVisible(Ui.session_buttons.finish, session.has_active)
+        safeSetVisible(Ui.session_labels.fish_header, session.has_active)
+        for index = 1, 4 do
+            local fishText = session.fish_lines ~= nil and session.fish_lines[index] or nil
+            local label = Ui.session_fish_labels[index]
+            if label ~= nil then
+                safeSetText(label, fishText or "")
+                safeSetVisible(label, fishText ~= nil and fishText ~= "")
+            end
+        end
+        safeSetVisible(Ui.session_labels.history_header, true)
+        for index = 1, 4 do
+            local row = Ui.session_history_rows[index]
+            local item = session.history ~= nil and session.history[index] or nil
+            if row ~= nil then
+                if item ~= nil then
+                    row.session_id = item.id
+                    safeSetText(row.title, item.title or "")
+                    local detailText = tostring(item.detail or "")
+                    if item.fish ~= nil and item.fish ~= "" then
+                        detailText = detailText .. " | " .. tostring(item.fish)
+                    end
+                    safeSetText(row.detail, detailText)
+                    safeSetVisible(row.title, true)
+                    safeSetVisible(row.detail, true)
+                    safeSetVisible(row.remove, true)
+                else
+                    row.session_id = nil
+                    safeSetVisible(row.title, false)
+                    safeSetVisible(row.detail, false)
+                    safeSetVisible(row.remove, false)
+                end
+            end
+        end
     end
 end
 
@@ -699,6 +815,8 @@ function Ui.Unload()
     Ui.target_canvas = nil
     Ui.target_bg = nil
     Ui.target_icon = nil
+    Ui.target_icon_mask = nil
+    Ui.target_icon_text = nil
     Ui.target_fish_name = nil
     Ui.target_status = nil
     Ui.target_coach = nil
@@ -712,7 +830,11 @@ function Ui.Unload()
     Ui.catch_rows = {}
     Ui.boat_row = nil
     Ui.session_window = nil
+    Ui.session_title = nil
     Ui.session_labels = {}
+    Ui.session_buttons = {}
+    Ui.session_fish_labels = {}
+    Ui.session_history_rows = {}
     Ui.settings_controls = {}
     Ui.on_settings_changed = nil
 end

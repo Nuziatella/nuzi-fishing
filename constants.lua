@@ -12,6 +12,7 @@ Constants.AUTO_CATCH_COUNT = 6
 Constants.MARKER_TIMER_MS = 150000
 Constants.MARKER_SCAN_MS = 250
 Constants.UPDATE_INTERVAL_MS = 16
+Constants.SESSION_IDLE_TIMEOUT_MS = 180000
 
 Constants.ACTION_BUFF_IDS = {
     [5264] = true,
@@ -95,6 +96,12 @@ Constants.DEFAULT_SETTINGS = {
     target_hud_y = 360,
     session_x = 30,
     session_y = 260,
+    session_log = {
+        active = false,
+        current = {},
+        saved = {},
+        next_id = 1
+    },
     show_target = true,
     show_fish_name = true,
     show_status_text = true,
