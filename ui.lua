@@ -4,6 +4,7 @@ local Shared = require("nuzi-fishing/shared")
 
 local Ui = {
     target_canvas = nil,
+    target_bg = nil,
     target_icon = nil,
     target_fish_name = nil,
     target_status = nil,
@@ -147,6 +148,138 @@ local function safeAnchor(widget, point, target, relativePoint, x, y)
     end
 end
 
+local function getTargetHudPosition()
+    local settings = Shared.EnsureSettings()
+    return tonumber(settings.target_hud_x) or 760, tonumber(settings.target_hud_y) or 360
+end
+
+local function applyTargetHudPosition()
+    if Ui.target_canvas == nil then
+        return
+    end
+    local x, y = getTargetHudPosition()
+    safeAnchor(Ui.target_canvas, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
+end
+
+local function getSessionPosition()
+    local settings = Shared.EnsureSettings()
+    return tonumber(settings.session_x) or 30, tonumber(settings.session_y) or 260
+end
+
+local function applySessionPosition()
+    if Ui.session_window == nil then
+        return
+    end
+    local x, y = getSessionPosition()
+    safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
+end
+
+local function enableTargetHudDrag(canvas)
+    if canvas == nil then
+        return
+    end
+    if canvas.RegisterForDrag ~= nil then
+        canvas:RegisterForDrag("LeftButton")
+    end
+    if canvas.EnableDrag ~= nil then
+        canvas:EnableDrag(true)
+    end
+    if canvas.SetHandler ~= nil then
+        canvas:SetHandler("OnDragStart", function(self)
+            if self.StartMoving ~= nil then
+                self:StartMoving()
+            end
+        end)
+        canvas:SetHandler("OnDragStop", function(self)
+            if self.StopMovingOrSizing ~= nil then
+                self:StopMovingOrSizing()
+            end
+            if self.GetOffset ~= nil then
+                local ok, x, y = pcall(function()
+                    return self:GetOffset()
+                end)
+                if ok then
+                    local settings = Shared.EnsureSettings()
+                    settings.target_hud_x = tonumber(x) or settings.target_hud_x
+                    settings.target_hud_y = tonumber(y) or settings.target_hud_y
+                    Shared.SaveSettings()
+                    applyTargetHudPosition()
+                end
+            end
+        end)
+    end
+end
+
+local function attachTargetDrag(widget)
+    if widget == nil or widget.SetHandler == nil then
+        return
+    end
+    if widget.RegisterForDrag ~= nil then
+        widget:RegisterForDrag("LeftButton")
+    end
+    if widget.EnableDrag ~= nil then
+        widget:EnableDrag(true)
+    end
+    widget:SetHandler("OnDragStart", function()
+        if Ui.target_canvas ~= nil and Ui.target_canvas.StartMoving ~= nil then
+            Ui.target_canvas:StartMoving()
+        end
+    end)
+    widget:SetHandler("OnDragStop", function()
+        if Ui.target_canvas ~= nil and Ui.target_canvas.StopMovingOrSizing ~= nil then
+            Ui.target_canvas:StopMovingOrSizing()
+        end
+        if Ui.target_canvas ~= nil and Ui.target_canvas.GetOffset ~= nil then
+            local ok, x, y = pcall(function()
+                return Ui.target_canvas:GetOffset()
+            end)
+            if ok then
+                local settings = Shared.EnsureSettings()
+                settings.target_hud_x = tonumber(x) or settings.target_hud_x
+                settings.target_hud_y = tonumber(y) or settings.target_hud_y
+                Shared.SaveSettings()
+                applyTargetHudPosition()
+            end
+        end
+    end)
+end
+
+local function enableSessionDrag(window)
+    if window == nil then
+        return
+    end
+    if window.RegisterForDrag ~= nil then
+        window:RegisterForDrag("LeftButton")
+    end
+    if window.EnableDrag ~= nil then
+        window:EnableDrag(true)
+    end
+    if window.SetHandler ~= nil then
+        window:SetHandler("OnDragStart", function(self)
+            if self.StartMoving ~= nil then
+                self:StartMoving()
+            end
+        end)
+        window:SetHandler("OnDragStop", function(self)
+            if self.StopMovingOrSizing ~= nil then
+                self:StopMovingOrSizing()
+            end
+            if self.GetOffset ~= nil then
+                local ok, x, y = pcall(function()
+                    return self:GetOffset()
+                end)
+                if ok then
+                    local settings = Shared.EnsureSettings()
+                    settings.session_x = tonumber(x) or settings.session_x
+                    settings.session_y = tonumber(y) or settings.session_y
+                    Shared.SaveSettings()
+                    applySessionPosition()
+                end
+            end
+        end)
+    end
+end
+
 local function applyCommonWindowBehavior(window)
     if window == nil then
         return
@@ -281,12 +414,19 @@ local function createTargetHud()
     end
 
     local canvas = api.Interface:CreateEmptyWindow("NuziFishingTargetHud")
-    canvas:SetExtent(360, 110)
+    canvas:SetExtent(420, 132)
     canvas:Show(false)
     Ui.target_canvas = canvas
+    applyTargetHudPosition()
+    enableTargetHudDrag(canvas)
+    if canvas.CreateColorDrawable ~= nil then
+        Ui.target_bg = canvas:CreateColorDrawable(0.04, 0.04, 0.04, 0.72, "background")
+        Ui.target_bg:AddAnchor("TOPLEFT", canvas, "TOPLEFT", -10, -6)
+        Ui.target_bg:AddAnchor("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 10, 6)
+    end
 
     Ui.target_icon = createIcon("NuziFishingTargetIcon", canvas)
-    Ui.target_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 20)
+    Ui.target_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 12, 34)
 
     if canvas.CreateColorDrawable ~= nil then
         Ui.target_glow = canvas:CreateColorDrawable(1, 1, 1, 0, "background")
@@ -295,17 +435,28 @@ local function createTargetHud()
         Ui.target_glow:Show(false)
     end
 
-    Ui.target_fish_name = createLabel("NuziFishingFishName", canvas, -60, 0, 160, 20, 15, getAlignCenter(), { 1, 1, 1, 1 })
-    Ui.target_status = createLabel("NuziFishingStatus", canvas, 60, 18, 230, 20, 14, getAlignLeft(), { 0.8, 0.9, 1, 1 })
-    Ui.target_coach = createLabel("NuziFishingCoach", canvas, 60, 40, 230, 30, 22, getAlignLeft(), { 1, 0.82, 0.25, 1 })
-    Ui.target_hint = createLabel("NuziFishingHint", canvas, 60, 68, 260, 20, 13, getAlignLeft(), { 0.9, 0.9, 0.9, 1 })
-    Ui.target_keybind = createLabel("NuziFishingKeybind", canvas, 60, 88, 160, 18, 13, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, 226, 88, 72, 18, 16, getAlignLeft(), { 0, 1, 0, 1 })
+    Ui.target_fish_name = createLabel("NuziFishingFishName", canvas, 12, 6, 260, 20, 16, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.target_status = createLabel("NuziFishingStatus", canvas, 70, 34, 220, 18, 13, getAlignLeft(), { 0.8, 0.9, 1, 1 })
+    Ui.target_coach = createLabel("NuziFishingCoach", canvas, 70, 52, 240, 28, 24, getAlignLeft(), { 1, 0.82, 0.25, 1 })
+    Ui.target_hint = createLabel("NuziFishingHint", canvas, 70, 82, 290, 18, 13, getAlignLeft(), { 0.9, 0.9, 0.9, 1 })
+    Ui.target_keybind = createLabel("NuziFishingKeybind", canvas, 70, 102, 210, 18, 13, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, 286, 102, 70, 18, 16, getAlignLeft(), { 0, 1, 0, 1 })
 
     Ui.strength_icon = createIcon("NuziFishingStrengthIcon", canvas)
-    Ui.strength_icon:AddAnchor("LEFT", Ui.target_icon, "RIGHT", 5, 0)
+    Ui.strength_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 360, 34)
     Ui.strength_icon:Show(false)
-    Ui.strength_timer = createLabel("NuziFishingStrengthTimer", canvas, 310, 88, 72, 18, 16, getAlignLeft(), { 1, 1, 0, 1 })
+    Ui.strength_timer = createLabel("NuziFishingStrengthTimer", canvas, 346, 102, 70, 18, 16, getAlignLeft(), { 1, 1, 0, 1 })
+
+    attachTargetDrag(canvas)
+    attachTargetDrag(Ui.target_icon)
+    attachTargetDrag(Ui.target_fish_name)
+    attachTargetDrag(Ui.target_status)
+    attachTargetDrag(Ui.target_coach)
+    attachTargetDrag(Ui.target_hint)
+    attachTargetDrag(Ui.target_keybind)
+    attachTargetDrag(Ui.target_timer)
+    attachTargetDrag(Ui.strength_icon)
+    attachTargetDrag(Ui.strength_timer)
 end
 
 local function createTimerRows()
@@ -361,6 +512,13 @@ local function createSessionWindow()
     window:SetExtent(170, 76)
     window:Show(false)
     Ui.session_window = window
+    applySessionPosition()
+    enableSessionDrag(window)
+    if window.CreateColorDrawable ~= nil then
+        local bg = window:CreateColorDrawable(0.05, 0.05, 0.05, 0.72, "background")
+        bg:AddAnchor("TOPLEFT", window, "TOPLEFT", -8, -6)
+        bg:AddAnchor("BOTTOMRIGHT", window, "BOTTOMRIGHT", 8, 6)
+    end
     Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 0, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
     Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 18, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
     Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 0, 36, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
@@ -434,10 +592,9 @@ function Ui.Render(uiState)
     end
 
     local target = uiState.target or {}
-    local targetVisible = target.visible and type(target.icon_path) == "string" and target.icon_path ~= "" and target.x ~= nil and target.y ~= nil
+    local targetVisible = target.visible and type(target.icon_path) == "string" and target.icon_path ~= ""
     safeSetVisible(Ui.target_canvas, targetVisible)
     if targetVisible then
-        safeAnchor(Ui.target_canvas, "TOP", "UIParent", "TOPLEFT", math.floor(target.x - 42), math.floor(target.y - 28))
         safeSetIcon(Ui.target_icon, target.icon_path)
         safeSetText(Ui.target_fish_name, target.fish_name or "")
         safeSetText(Ui.target_status, target.status_text or "")
@@ -526,7 +683,6 @@ function Ui.Render(uiState)
     local session = uiState.session or {}
     safeSetVisible(Ui.session_window, session.visible)
     if session.visible then
-        safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", 30, 260)
         safeSetText(Ui.session_labels.elapsed, session.elapsed_text or "")
         safeSetText(Ui.session_labels.catches, session.catches_text or "")
         safeSetText(Ui.session_labels.active, session.active_text or "")
@@ -541,6 +697,7 @@ function Ui.Unload()
         Ui.settings_window = nil
     end
     Ui.target_canvas = nil
+    Ui.target_bg = nil
     Ui.target_icon = nil
     Ui.target_fish_name = nil
     Ui.target_status = nil
