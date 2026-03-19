@@ -5,6 +5,10 @@ local Shared = require("nuzi-fishing/shared")
 local Ui = {
     target_canvas = nil,
     target_icon = nil,
+    target_fish_name = nil,
+    target_status = nil,
+    target_coach = nil,
+    target_hint = nil,
     target_timer = nil,
     target_keybind = nil,
     target_glow = nil,
@@ -13,9 +17,29 @@ local Ui = {
     marker_rows = {},
     catch_rows = {},
     boat_row = nil,
+    session_window = nil,
+    session_labels = {},
     settings_window = nil,
     settings_controls = {},
     on_settings_changed = nil
+}
+
+local SETTINGS_ROWS = {
+    { label = "Addon", key = "enabled" },
+    { label = "Target HUD", key = "show_target" },
+    { label = "Fish Name", key = "show_fish_name" },
+    { label = "Status Text", key = "show_status_text" },
+    { label = "Coach", key = "show_coach" },
+    { label = "Coach Hint", key = "show_coach_hint" },
+    { label = "Keybind", key = "show_keybind" },
+    { label = "Prompt Sounds", key = "show_prompt_sounds" },
+    { label = "Timers", key = "show_timers" },
+    { label = "Waiting", key = "show_wait" },
+    { label = "Strength", key = "show_strength" },
+    { label = "Markers", key = "show_markers" },
+    { label = "Auto Catches", key = "show_auto_catches" },
+    { label = "Boat", key = "show_boat" },
+    { label = "Session", key = "show_session" }
 }
 
 local function getAlignLeft()
@@ -36,12 +60,6 @@ local function getAlignCenter()
         return ALIGN.CENTER
     end
     return nil
-end
-
-local function safeShow(widget, show)
-    if widget ~= nil and widget.Show ~= nil then
-        widget:Show(show and true or false)
-    end
 end
 
 local function safeSetText(widget, text)
@@ -239,7 +257,7 @@ local function toggleSetting(settingKey)
 end
 
 local function createSettingsRow(parent, rowIndex, title, settingKey)
-    local top = 56 + ((rowIndex - 1) * 34)
+    local top = 56 + ((rowIndex - 1) * 30)
     local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 160, 24, 14, getAlignLeft())
     safeSetText(label, title)
     local button = createButton(
@@ -249,7 +267,7 @@ local function createSettingsRow(parent, rowIndex, title, settingKey)
         194,
         top,
         92,
-        26,
+        24,
         function()
             toggleSetting(settingKey)
         end
@@ -263,109 +281,58 @@ local function createTargetHud()
     end
 
     local canvas = api.Interface:CreateEmptyWindow("NuziFishingTargetHud")
+    canvas:SetExtent(360, 110)
     canvas:Show(false)
     Ui.target_canvas = canvas
 
-    local targetIcon = createIcon("NuziFishingTargetIcon", canvas)
-    targetIcon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-    Ui.target_icon = targetIcon
+    Ui.target_icon = createIcon("NuziFishingTargetIcon", canvas)
+    Ui.target_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 20)
 
-    local targetGlow = nil
     if canvas.CreateColorDrawable ~= nil then
-        targetGlow = canvas:CreateColorDrawable(1, 1, 1, 0, "background")
-        targetGlow:AddAnchor("TOPLEFT", targetIcon, -4, -4)
-        targetGlow:AddAnchor("BOTTOMRIGHT", targetIcon, 4, 4)
-        targetGlow:Show(false)
+        Ui.target_glow = canvas:CreateColorDrawable(1, 1, 1, 0, "background")
+        Ui.target_glow:AddAnchor("TOPLEFT", Ui.target_icon, -4, -4)
+        Ui.target_glow:AddAnchor("BOTTOMRIGHT", Ui.target_icon, 4, 4)
+        Ui.target_glow:Show(false)
     end
-    Ui.target_glow = targetGlow
 
-    local targetTimer = createLabel(
-        "NuziFishingTargetTimer",
-        canvas,
-        -8,
-        46,
-        72,
-        20,
-        18,
-        getAlignCenter(),
-        { 0, 1, 0, 1 }
-    )
-    Ui.target_timer = targetTimer
+    Ui.target_fish_name = createLabel("NuziFishingFishName", canvas, -60, 0, 160, 20, 15, getAlignCenter(), { 1, 1, 1, 1 })
+    Ui.target_status = createLabel("NuziFishingStatus", canvas, 60, 18, 230, 20, 14, getAlignLeft(), { 0.8, 0.9, 1, 1 })
+    Ui.target_coach = createLabel("NuziFishingCoach", canvas, 60, 40, 230, 30, 22, getAlignLeft(), { 1, 0.82, 0.25, 1 })
+    Ui.target_hint = createLabel("NuziFishingHint", canvas, 60, 68, 260, 20, 13, getAlignLeft(), { 0.9, 0.9, 0.9, 1 })
+    Ui.target_keybind = createLabel("NuziFishingKeybind", canvas, 60, 88, 160, 18, 13, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, 226, 88, 72, 18, 16, getAlignLeft(), { 0, 1, 0, 1 })
 
-    local targetKeybind = createLabel(
-        "NuziFishingTargetKeybind",
-        canvas,
-        -6,
-        12,
-        68,
-        20,
-        14,
-        getAlignCenter(),
-        { 1, 1, 1, 1 }
-    )
-    Ui.target_keybind = targetKeybind
-
-    local strengthIcon = createIcon("NuziFishingStrengthIcon", canvas)
-    strengthIcon:AddAnchor("LEFT", targetIcon, "RIGHT", 5, 0)
-    strengthIcon:Show(false)
-    Ui.strength_icon = strengthIcon
-
-    local strengthTimer = createLabel(
-        "NuziFishingStrengthTimer",
-        canvas,
-        29,
-        46,
-        72,
-        20,
-        18,
-        getAlignCenter(),
-        { 1, 1, 0, 1 }
-    )
-    Ui.strength_timer = strengthTimer
+    Ui.strength_icon = createIcon("NuziFishingStrengthIcon", canvas)
+    Ui.strength_icon:AddAnchor("LEFT", Ui.target_icon, "RIGHT", 5, 0)
+    Ui.strength_icon:Show(false)
+    Ui.strength_timer = createLabel("NuziFishingStrengthTimer", canvas, 310, 88, 72, 18, 16, getAlignLeft(), { 1, 1, 0, 1 })
 end
 
-local function createMarkerRows()
-    if #Ui.marker_rows > 0 then
-        return
+local function createTimerRows()
+    if #Ui.marker_rows == 0 then
+        for markerIndex = 1, Constants.MARKER_COUNT do
+            local canvas = api.Interface:CreateEmptyWindow("NuziFishingMarkerRow" .. tostring(markerIndex))
+            canvas:SetExtent(56, 64)
+            canvas:Show(false)
+            local icon = createIcon("NuziFishingMarkerIcon" .. tostring(markerIndex), canvas)
+            icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
+            local label = createLabel("NuziFishingMarkerLabel" .. tostring(markerIndex), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 1, 1, 1 })
+            local time = createLabel("NuziFishingMarkerTime" .. tostring(markerIndex), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.5, 0, 1 })
+            Ui.marker_rows[markerIndex] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+        end
     end
 
-    for markerIndex = 1, Constants.MARKER_COUNT do
-        local canvas = api.Interface:CreateEmptyWindow("NuziFishingMarkerRow" .. tostring(markerIndex))
-        canvas:Show(false)
-
-        local icon = createIcon("NuziFishingMarkerIcon" .. tostring(markerIndex), canvas)
-        icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-
-        local markerLabel = createLabel(
-            "NuziFishingMarkerLabel" .. tostring(markerIndex),
-            canvas,
-            -8,
-            -20,
-            72,
-            20,
-            20,
-            getAlignCenter(),
-            { 1, 1, 1, 1 }
-        )
-
-        local timeLabel = createLabel(
-            "NuziFishingMarkerTime" .. tostring(markerIndex),
-            canvas,
-            -8,
-            46,
-            72,
-            20,
-            18,
-            getAlignCenter(),
-            { 1, 0.5, 0, 1 }
-        )
-
-        Ui.marker_rows[markerIndex] = {
-            canvas = canvas,
-            icon = icon,
-            marker_label = markerLabel,
-            time_label = timeLabel
-        }
+    if #Ui.catch_rows == 0 then
+        for index = 1, Constants.AUTO_CATCH_COUNT do
+            local canvas = api.Interface:CreateEmptyWindow("NuziFishingCatchRow" .. tostring(index))
+            canvas:SetExtent(56, 64)
+            canvas:Show(false)
+            local icon = createIcon("NuziFishingCatchIcon" .. tostring(index), canvas)
+            icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
+            local label = createLabel("NuziFishingCatchLabel" .. tostring(index), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 0.85, 0.85, 1 })
+            local time = createLabel("NuziFishingCatchTime" .. tostring(index), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.3, 0.3, 1 })
+            Ui.catch_rows[index] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+        end
     end
 end
 
@@ -375,87 +342,29 @@ local function createBoatRow()
     end
 
     local canvas = api.Interface:CreateEmptyWindow("NuziFishingBoatRow")
+    canvas:SetExtent(56, 64)
     canvas:Show(false)
-
     local icon = createIcon("NuziFishingBoatIcon", canvas)
     icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-
-    local markerLabel = createLabel(
-        "NuziFishingBoatLabel",
-        canvas,
-        -8,
-        -20,
-        72,
-        18,
-        14,
-        getAlignCenter(),
-        { 0.3, 0.6, 1, 1 }
-    )
-    safeSetText(markerLabel, "Boat")
-
-    local timeLabel = createLabel(
-        "NuziFishingBoatTime",
-        canvas,
-        -8,
-        46,
-        72,
-        20,
-        18,
-        getAlignCenter(),
-        { 0.3, 0.6, 1, 1 }
-    )
-
-    Ui.boat_row = {
-        canvas = canvas,
-        icon = icon,
-        marker_label = markerLabel,
-        time_label = timeLabel
-    }
+    local label = createLabel("NuziFishingBoatLabel", canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 0.3, 0.6, 1, 1 })
+    local time = createLabel("NuziFishingBoatTime", canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 0.3, 0.6, 1, 1 })
+    safeSetText(label, "Boat")
+    Ui.boat_row = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
 end
 
-local function createCatchRows()
-    if #Ui.catch_rows > 0 then
+local function createSessionWindow()
+    if Ui.session_window ~= nil then
         return
     end
 
-    for index = 1, Constants.AUTO_CATCH_COUNT do
-        local canvas = api.Interface:CreateEmptyWindow("NuziFishingCatchRow" .. tostring(index))
-        canvas:Show(false)
-
-        local icon = createIcon("NuziFishingCatchIcon" .. tostring(index), canvas)
-        icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-
-        local markerLabel = createLabel(
-            "NuziFishingCatchLabel" .. tostring(index),
-            canvas,
-            -8,
-            -20,
-            72,
-            18,
-            14,
-            getAlignCenter(),
-            { 1, 0.8, 0.8, 1 }
-        )
-
-        local timeLabel = createLabel(
-            "NuziFishingCatchTime" .. tostring(index),
-            canvas,
-            -8,
-            46,
-            72,
-            20,
-            18,
-            getAlignCenter(),
-            { 1, 0.3, 0.3, 1 }
-        )
-
-        Ui.catch_rows[index] = {
-            canvas = canvas,
-            icon = icon,
-            marker_label = markerLabel,
-            time_label = timeLabel
-        }
-    end
+    local window = api.Interface:CreateEmptyWindow("NuziFishingSession")
+    window:SetExtent(170, 76)
+    window:Show(false)
+    Ui.session_window = window
+    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 0, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 18, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
+    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 0, 36, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
+    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 0, 54, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
 end
 
 local function createSettingsWindow()
@@ -463,31 +372,15 @@ local function createSettingsWindow()
         return
     end
 
-    local window = api.Interface:CreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, 330)
+    local height = 72 + (#SETTINGS_ROWS * 30)
+    local window = api.Interface:CreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, height)
     window:AddAnchor("CENTER", "UIParent", 0, 0)
     applyCommonWindowBehavior(window)
     window:Show(false)
 
-    createSettingsRow(window, 1, "Addon", "enabled")
-    createSettingsRow(window, 2, "Target HUD", "show_target")
-    createSettingsRow(window, 3, "Strength", "show_strength")
-    createSettingsRow(window, 4, "Timers", "show_timers")
-    createSettingsRow(window, 5, "Waiting", "show_wait")
-    createSettingsRow(window, 6, "Markers", "show_markers")
-    createSettingsRow(window, 7, "Boat", "show_boat")
-
-    local footer = createLabel(
-        "NuziFishingSettingsFooter",
-        window,
-        24,
-        296,
-        260,
-        20,
-        12,
-        getAlignLeft(),
-        { 0.8, 0.8, 0.8, 1 }
-    )
-    safeSetText(footer, "Changes apply immediately.")
+    for index, row in ipairs(SETTINGS_ROWS) do
+        createSettingsRow(window, index, row.label, row.key)
+    end
 
     Ui.settings_window = window
     Ui.RefreshSettings()
@@ -496,9 +389,9 @@ end
 function Ui.Init(callbacks)
     Ui.on_settings_changed = callbacks ~= nil and callbacks.on_settings_changed or nil
     createTargetHud()
-    createMarkerRows()
-    createCatchRows()
+    createTimerRows()
     createBoatRow()
+    createSessionWindow()
     createSettingsWindow()
 end
 
@@ -521,6 +414,7 @@ end
 
 function Ui.HideHud()
     safeSetVisible(Ui.target_canvas, false)
+    safeSetVisible(Ui.session_window, false)
     for _, row in ipairs(Ui.marker_rows) do
         safeSetVisible(row.canvas, false)
     end
@@ -543,25 +437,30 @@ function Ui.Render(uiState)
     local targetVisible = target.visible and type(target.icon_path) == "string" and target.icon_path ~= "" and target.x ~= nil and target.y ~= nil
     safeSetVisible(Ui.target_canvas, targetVisible)
     if targetVisible then
-        safeAnchor(Ui.target_canvas, "TOP", "UIParent", "TOPLEFT", math.floor(target.x - 42), math.floor(target.y + 5))
+        safeAnchor(Ui.target_canvas, "TOP", "UIParent", "TOPLEFT", math.floor(target.x - 42), math.floor(target.y - 28))
         safeSetIcon(Ui.target_icon, target.icon_path)
-        safeSetText(Ui.target_timer, target.timer_text or "")
+        safeSetText(Ui.target_fish_name, target.fish_name or "")
+        safeSetText(Ui.target_status, target.status_text or "")
+        safeSetText(Ui.target_coach, target.coach_text or "")
+        safeSetText(Ui.target_hint, target.coach_hint or "")
         safeSetText(Ui.target_keybind, target.keybind_text or "")
+        safeSetText(Ui.target_timer, target.timer_text or "")
         if target.emphasis == "big_reel_in" then
-            setLabelStyle(Ui.target_keybind, 18, { 1, 0.92, 0.3, 1 })
-            setLabelStyle(Ui.target_timer, 18, getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
+            setLabelStyle(Ui.target_coach, 24, { 1, 0.92, 0.3, 1 })
+            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 0.95, 0.75, 0.1, 0.28 })
             safeSetDrawableVisible(Ui.target_glow, true)
         elseif target.emphasis == "reel_in" then
-            setLabelStyle(Ui.target_keybind, 17, { 1, 0.58, 0.18, 1 })
-            setLabelStyle(Ui.target_timer, 18, getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
+            setLabelStyle(Ui.target_coach, 24, { 1, 0.58, 0.18, 1 })
+            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 1, 0.45, 0.1, 0.24 })
             safeSetDrawableVisible(Ui.target_glow, true)
         else
-            setLabelStyle(Ui.target_keybind, 14, { 1, 1, 1, 1 })
-            setLabelStyle(Ui.target_timer, 18, getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
+            setLabelStyle(Ui.target_coach, 22, { 0.85, 0.9, 1, 1 })
+            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
             safeSetDrawableVisible(Ui.target_glow, false)
         end
+
         local showStrength = target.strength_visible and type(target.strength_icon_path) == "string" and target.strength_icon_path ~= ""
         safeSetVisible(Ui.strength_icon, showStrength)
         if showStrength then
@@ -569,7 +468,6 @@ function Ui.Render(uiState)
         end
         safeSetText(Ui.strength_timer, target.strength_timer_text or "")
     else
-        safeSetText(Ui.target_keybind, "")
         safeSetDrawableVisible(Ui.target_glow, false)
     end
 
@@ -583,8 +481,8 @@ function Ui.Render(uiState)
             safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, 200)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
-            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
             safeSetText(row.marker_label, tostring(data.index or index))
+            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
             safeSetVisible(row.canvas, true)
             activeCount = activeCount + 1
         elseif row ~= nil then
@@ -602,8 +500,8 @@ function Ui.Render(uiState)
             safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, 200)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
-            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
             safeSetText(row.marker_label, tostring(data.serial or index))
+            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
             safeSetVisible(row.canvas, true)
             catchCount = catchCount + 1
         elseif row ~= nil then
@@ -624,6 +522,16 @@ function Ui.Render(uiState)
             safeSetVisible(Ui.boat_row.canvas, false)
         end
     end
+
+    local session = uiState.session or {}
+    safeSetVisible(Ui.session_window, session.visible)
+    if session.visible then
+        safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", 30, 260)
+        safeSetText(Ui.session_labels.elapsed, session.elapsed_text or "")
+        safeSetText(Ui.session_labels.catches, session.catches_text or "")
+        safeSetText(Ui.session_labels.active, session.active_text or "")
+        safeSetText(Ui.session_labels.marked, session.marked_text or "")
+    end
 end
 
 function Ui.Unload()
@@ -634,6 +542,10 @@ function Ui.Unload()
     end
     Ui.target_canvas = nil
     Ui.target_icon = nil
+    Ui.target_fish_name = nil
+    Ui.target_status = nil
+    Ui.target_coach = nil
+    Ui.target_hint = nil
     Ui.target_timer = nil
     Ui.target_keybind = nil
     Ui.target_glow = nil
@@ -642,6 +554,8 @@ function Ui.Unload()
     Ui.marker_rows = {}
     Ui.catch_rows = {}
     Ui.boat_row = nil
+    Ui.session_window = nil
+    Ui.session_labels = {}
     Ui.settings_controls = {}
     Ui.on_settings_changed = nil
 end

@@ -5,6 +5,22 @@ local Shared = {
     settings = nil
 }
 
+local function pruneUnknown(into, defaults)
+    local changed = false
+    for key, value in pairs(into) do
+        local defaultValue = defaults[key]
+        if defaultValue == nil then
+            into[key] = nil
+            changed = true
+        elseif type(value) == "table" and type(defaultValue) == "table" then
+            if pruneUnknown(value, defaultValue) then
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
 local function copyDefaults(into, defaults)
     local changed = false
     for key, value in pairs(defaults) do
@@ -26,7 +42,10 @@ end
 
 function Shared.LoadSettings()
     local settings = api.GetSettings(Constants.ADDON_ID) or {}
-    local changed = copyDefaults(settings, Constants.DEFAULT_SETTINGS)
+    local changed = pruneUnknown(settings, Constants.DEFAULT_SETTINGS)
+    if copyDefaults(settings, Constants.DEFAULT_SETTINGS) then
+        changed = true
+    end
     Shared.settings = settings
     if changed then
         api.SaveSettings()

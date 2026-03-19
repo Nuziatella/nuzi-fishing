@@ -3,8 +3,8 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "1.2.0"
-Constants.ADDON_DESC = "Sport fishing helper"
+Constants.ADDON_VERSION = "1.4.0"
+Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
 
 Constants.MARKER_COUNT = 9
@@ -24,14 +24,20 @@ Constants.ACTION_BUFF_IDS = {
 Constants.ACTION_BUFF_INFO = {
     [5264] = {
         label = "Stand Firm Right",
+        coach = "RIGHT",
+        hint = "Hold the fish to the right.",
         hotkey_actions = { "fist_fishing_action_r" }
     },
     [5265] = {
         label = "Stand Firm Left",
+        coach = "LEFT",
+        hint = "Hold the fish to the left.",
         hotkey_actions = { "fist_fishing_action_l" }
     },
     [5266] = {
         label = "Reel In",
+        coach = "REEL IN",
+        hint = "Tap reel while the prompt is up.",
         hotkey_actions = { "fist_fishing_action_reelin" },
         emphasis = "reel_in",
         sound_names = {
@@ -42,10 +48,14 @@ Constants.ACTION_BUFF_INFO = {
     },
     [5267] = {
         label = "Give Slack",
+        coach = "SLACK",
+        hint = "Let the line breathe for a moment.",
         hotkey_actions = { "fist_fishing_action_reelout" }
     },
     [5508] = {
         label = "Big Reel In",
+        coach = "BIG REEL",
+        hint = "Use your strongest reel window now.",
         hotkey_actions = { "fist_fishing_action_up", "fist_fishing_action_reelin" },
         emphasis = "big_reel_in",
         sound_names = {
@@ -82,11 +92,19 @@ Constants.FISH_NAMES = {
 Constants.DEFAULT_SETTINGS = {
     enabled = true,
     show_target = true,
+    show_fish_name = true,
+    show_status_text = true,
+    show_coach = true,
+    show_coach_hint = true,
+    show_keybind = true,
+    show_prompt_sounds = true,
     show_markers = true,
+    show_auto_catches = true,
     show_boat = true,
     show_strength = true,
     show_timers = true,
     show_wait = true,
+    show_session = true,
     show_target_buff_icon = false
 }
 

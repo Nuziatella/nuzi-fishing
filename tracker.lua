@@ -6,6 +6,7 @@ local Tracker = {
     marked = {},
     caught = {},
     catch_serial = 0,
+    total_catches = 0,
     boat_expiration_ms = nil,
     marker_elapsed_ms = Constants.MARKER_SCAN_MS,
     icon_cache = {},
@@ -13,24 +14,25 @@ local Tracker = {
     ui_state = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
-    last_action_buff_id = nil
+    last_action_buff_id = nil,
+    session_started_ms = nil
 }
 
 local findLatestCaughtForUnit
 
 local function getUnitScreenPosition(unit)
-    local x, y, z = nil, nil, nil
+    local x, y = nil, nil
     if api.Unit ~= nil and api.Unit.GetUnitScreenNameTagOffset ~= nil then
         pcall(function()
-            x, y, z = api.Unit:GetUnitScreenNameTagOffset(unit)
+            x, y = api.Unit:GetUnitScreenNameTagOffset(unit)
         end)
     end
     if x == nil or y == nil then
         pcall(function()
-            x, y, z = api.Unit:GetUnitScreenPosition(unit)
+            x, y = api.Unit:GetUnitScreenPosition(unit)
         end)
     end
-    return tonumber(x), tonumber(y), tonumber(z)
+    return tonumber(x), tonumber(y)
 end
 
 local function getNowMs()
@@ -108,6 +110,11 @@ local function getActionHotkey(buffId)
 end
 
 local function playActionSound(buffId)
+    local settings = Shared.EnsureSettings()
+    if not settings.show_prompt_sounds then
+        return
+    end
+
     local buffInfo = Constants.ACTION_BUFF_INFO[buffId]
     if type(buffInfo) ~= "table" or type(buffInfo.sound_names) ~= "table" then
         return
@@ -143,6 +150,12 @@ local function resetMarker(index)
     }
 end
 
+local function startSession(nowMs)
+    if Tracker.session_started_ms == nil then
+        Tracker.session_started_ms = nowMs
+    end
+end
+
 local function rememberCaughtTarget(unitId, nowMs)
     if unitId == nil then
         return nil
@@ -156,6 +169,8 @@ local function rememberCaughtTarget(unitId, nowMs)
     end
 
     Tracker.catch_serial = Tracker.catch_serial + 1
+    Tracker.total_catches = Tracker.total_catches + 1
+    startSession(nowMs)
     local caught = {
         serial = Tracker.catch_serial,
         unit_id = unitId,
@@ -215,6 +230,10 @@ local function buildTargetState(nowMs)
         x = nil,
         y = nil,
         icon_path = nil,
+        fish_name = "",
+        status_text = "",
+        coach_text = "",
+        coach_hint = "",
         timer_text = "",
         keybind_text = "",
         emphasis = nil,
@@ -227,6 +246,7 @@ local function buildTargetState(nowMs)
     if targetUnitId == nil then
         Tracker.last_target_unit_id = nil
         Tracker.last_target_health = nil
+        Tracker.last_action_buff_id = nil
         return targetState
     end
 
@@ -234,6 +254,7 @@ local function buildTargetState(nowMs)
     if targetInfo == nil then
         Tracker.last_target_unit_id = targetUnitId
         Tracker.last_target_health = nil
+        Tracker.last_action_buff_id = nil
         return targetState
     end
 
@@ -270,12 +291,14 @@ local function buildTargetState(nowMs)
         return targetState
     end
 
+    startSession(nowMs)
     local x, y = getUnitScreenPosition("target")
+    targetState.visible = settings.show_target
     targetState.x = x
     targetState.y = y
+    targetState.fish_name = settings.show_fish_name and tostring(targetInfo.name or "") or ""
 
-    local fishHealth = api.Unit:UnitHealth("target")
-    local currentHealth = tonumber(fishHealth)
+    local fishHealth = tonumber(api.Unit:UnitHealth("target"))
     local isNewTarget = Tracker.last_target_unit_id ~= targetUnitId
     local wasAliveBefore = tonumber(Tracker.last_target_health) ~= nil and tonumber(Tracker.last_target_health) > 0
     if fishHealth ~= nil and fishHealth <= 0 then
@@ -284,8 +307,10 @@ local function buildTargetState(nowMs)
         if isNewTarget or wasAliveBefore or Tracker.last_target_health == nil then
             latestCaught = rememberCaughtTarget(targetUnitId, nowMs)
         end
-        targetState.visible = settings.show_target
         targetState.icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID)
+        targetState.status_text = settings.show_status_text and "Fish caught" or ""
+        targetState.coach_text = settings.show_coach and "LOOT" or ""
+        targetState.coach_hint = settings.show_coach_hint and "Pull it in before it despawns." or ""
         if settings.show_timers and latestCaught ~= nil then
             local remainingMs = Constants.MARKER_TIMER_MS - (nowMs - latestCaught.death_time_ms)
             if remainingMs < 0 then
@@ -300,7 +325,7 @@ local function buildTargetState(nowMs)
             end
         end
         Tracker.last_target_unit_id = targetUnitId
-        Tracker.last_target_health = currentHealth
+        Tracker.last_target_health = fishHealth
         return targetState
     end
 
@@ -310,25 +335,36 @@ local function buildTargetState(nowMs)
             playActionSound(actionBuff.buff_id)
         end
         Tracker.last_action_buff_id = actionBuff.buff_id
-        targetState.visible = settings.show_target
         if settings.show_target_buff_icon and actionBuff.path ~= nil then
             targetState.icon_path = actionBuff.path
         else
             targetState.icon_path = getBuffIconPath(actionBuff.buff_id)
         end
-        targetState.keybind_text = getActionHotkey(actionBuff.buff_id) or ""
+        targetState.status_text = settings.show_status_text and tostring(buffInfo ~= nil and buffInfo.label or "") or ""
+        targetState.coach_text = settings.show_coach and tostring(buffInfo ~= nil and buffInfo.coach or "") or ""
+        targetState.coach_hint = settings.show_coach_hint and tostring(buffInfo ~= nil and buffInfo.hint or "") or ""
+        if settings.show_keybind then
+            local keybind = getActionHotkey(actionBuff.buff_id)
+            if keybind ~= nil and keybind ~= "" then
+                targetState.keybind_text = "Press " .. tostring(keybind)
+            end
+        end
         targetState.emphasis = buffInfo ~= nil and buffInfo.emphasis or nil
         if settings.show_timers then
             targetState.timer_text = Shared.FormatSeconds((tonumber(actionBuff.timeLeft) or 0) / 1000, 1)
         end
     elseif strengthBuff ~= nil then
         Tracker.last_action_buff_id = nil
-        targetState.visible = settings.show_target
         targetState.icon_path = getBuffIconPath(Constants.WAITING_ICON_BUFF_ID)
+        targetState.status_text = settings.show_status_text and "Strength contest" or ""
+        targetState.coach_text = settings.show_coach and "HOLD ON" or ""
+        targetState.coach_hint = settings.show_coach_hint and "Keep pace and wait for the next prompt." or ""
     elseif settings.show_wait then
         Tracker.last_action_buff_id = nil
-        targetState.visible = settings.show_target
         targetState.icon_path = getBuffIconPath(Constants.WAITING_ICON_BUFF_ID)
+        targetState.status_text = settings.show_status_text and "Waiting for prompt" or ""
+        targetState.coach_text = settings.show_coach and "READY" or ""
+        targetState.coach_hint = settings.show_coach_hint and "Watch for the next fishing callout." or ""
         if settings.show_timers then
             targetState.timer_text = "Waiting"
         end
@@ -345,15 +381,14 @@ local function buildTargetState(nowMs)
     end
 
     Tracker.last_target_unit_id = targetUnitId
-    Tracker.last_target_health = currentHealth
-
+    Tracker.last_target_health = fishHealth
     return targetState
 end
 
 local function buildCaughtStates(nowMs)
     local settings = Shared.EnsureSettings()
     local catches = {}
-    if not settings.show_target then
+    if not settings.show_auto_catches then
         return catches
     end
 
@@ -398,7 +433,7 @@ local function buildMarkerStates(nowMs)
                 table.insert(markers, {
                     index = markerIndex,
                     icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID),
-                    timer_text = Shared.FormatSeconds(remainingMs / 1000, 0)
+                    timer_text = settings.show_timers and Shared.FormatSeconds(remainingMs / 1000, 0) or ""
                 })
             else
                 marker.death_time_ms = nil
@@ -429,26 +464,57 @@ local function buildBoatState(nowMs)
 
     boatState.visible = true
     boatState.icon_path = getBuffIconPath(Constants.OWNERS_MARK_BUFF_ID)
-    boatState.timer_text = Shared.FormatSeconds(remainingMs / 1000, 0)
+    boatState.timer_text = settings.show_timers and Shared.FormatSeconds(remainingMs / 1000, 0) or ""
     return boatState
+end
+
+local function buildSessionState(nowMs, markers, catches)
+    local settings = Shared.EnsureSettings()
+    local session = {
+        visible = false,
+        elapsed_text = "",
+        catches_text = "",
+        active_text = "",
+        marked_text = ""
+    }
+
+    if not settings.show_session or Tracker.session_started_ms == nil then
+        return session
+    end
+
+    local elapsedSeconds = math.max(0, math.floor((nowMs - Tracker.session_started_ms) / 1000))
+    local minutes = math.floor(elapsedSeconds / 60)
+    local seconds = elapsedSeconds % 60
+    session.visible = true
+    session.elapsed_text = string.format("Time %02d:%02d", minutes, seconds)
+    session.catches_text = "Catches " .. tostring(Tracker.total_catches)
+    session.active_text = "Active " .. tostring(#catches)
+    session.marked_text = "Marked " .. tostring(#markers)
+    return session
 end
 
 function Tracker.Reset()
     Tracker.marked = {}
     Tracker.caught = {}
     Tracker.catch_serial = 0
+    Tracker.total_catches = 0
     Tracker.boat_expiration_ms = nil
     Tracker.marker_elapsed_ms = Constants.MARKER_SCAN_MS
     Tracker.hotkey_cache = {}
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
     Tracker.last_action_buff_id = nil
+    Tracker.session_started_ms = nil
     Tracker.ui_state = {
         target = {
             visible = false,
             x = nil,
             y = nil,
             icon_path = nil,
+            fish_name = "",
+            status_text = "",
+            coach_text = "",
+            coach_hint = "",
             timer_text = "",
             keybind_text = "",
             emphasis = nil,
@@ -462,6 +528,13 @@ function Tracker.Reset()
             visible = false,
             icon_path = nil,
             timer_text = ""
+        },
+        session = {
+            visible = false,
+            elapsed_text = "",
+            catches_text = "",
+            active_text = "",
+            marked_text = ""
         }
     }
 end
@@ -483,11 +556,14 @@ function Tracker.Update(dt)
     end
 
     local nowMs = getNowMs()
+    local markers = buildMarkerStates(nowMs)
+    local catches = buildCaughtStates(nowMs)
     Tracker.ui_state = {
         target = buildTargetState(nowMs),
-        markers = buildMarkerStates(nowMs),
-        catches = buildCaughtStates(nowMs),
-        boat = buildBoatState(nowMs)
+        markers = markers,
+        catches = catches,
+        boat = buildBoatState(nowMs),
+        session = buildSessionState(nowMs, markers, catches)
     }
     return Tracker.ui_state
 end
