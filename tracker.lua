@@ -16,10 +16,13 @@ local Tracker = {
     ui_state = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
-    last_action_buff_id = nil
+    last_action_buff_id = nil,
+    last_action_time_left_ms = nil,
+    last_action_stagnant_since_ms = nil
 }
 
 local findLatestCaughtForUnit
+local DEAD_STATE_KEYS = { "dead", "death", "ghost", "isdead", "is_dead" }
 
 local function getUnitScreenPosition(unit)
     local x, y = nil, nil
@@ -154,8 +157,135 @@ local function playActionSound(buffId)
     end
 end
 
+local function isTruthyStateValue(value)
+    if value == nil or value == false or value == 0 or value == "0" or value == "" then
+        return false
+    end
+    if type(value) == "string" then
+        local lower = string.lower(value)
+        return lower ~= "false" and lower ~= "none" and lower ~= "alive"
+    end
+    return true
+end
+
+local function tableHasTruthyMatch(value, needles, depth)
+    if type(value) ~= "table" then
+        return false
+    end
+    local remainingDepth = tonumber(depth) or 0
+    for key, entry in pairs(value) do
+        local lowerKey = string.lower(tostring(key or ""))
+        for _, needle in ipairs(needles) do
+            if string.find(lowerKey, needle, 1, true) ~= nil and isTruthyStateValue(entry) then
+                return true
+            end
+        end
+        if remainingDepth > 0 and type(entry) == "table" and tableHasTruthyMatch(entry, needles, remainingDepth - 1) then
+            return true
+        end
+    end
+    return false
+end
+
+local function getTrackedFishName(unitInfo)
+    local name = nil
+    if type(unitInfo) == "table" then
+        name = unitInfo.name
+    else
+        name = unitInfo
+    end
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    if Constants.FISH_NAMES[name] == true then
+        return name
+    end
+    local lowerName = string.lower(name)
+    local bestMatch = nil
+    for fishName in pairs(Constants.FISH_NAMES) do
+        local lowerFishName = string.lower(tostring(fishName))
+        if string.find(lowerName, lowerFishName, 1, true) ~= nil then
+            if bestMatch == nil or string.len(fishName) > string.len(bestMatch) then
+                bestMatch = fishName
+            end
+        end
+    end
+    return bestMatch
+end
+
 local function isTrackedFish(unitInfo)
-    return unitInfo ~= nil and Constants.FISH_NAMES[unitInfo.name] == true
+    return getTrackedFishName(unitInfo) ~= nil
+end
+
+local function getPlayerName()
+    local playerId = api.Unit:GetUnitId("player")
+    if playerId == nil then
+        return nil
+    end
+    local playerInfo = api.Unit:GetUnitInfoById(playerId)
+    if playerInfo == nil then
+        return nil
+    end
+    return type(playerInfo.name) == "string" and playerInfo.name or nil
+end
+
+local function isOwnedByPlayer(unitInfo, playerName)
+    return type(playerName) == "string"
+        and playerName ~= ""
+        and type(unitInfo) == "table"
+        and type(unitInfo.owner_name) == "string"
+        and unitInfo.owner_name == playerName
+end
+
+local function targetHasDeadState(unitInfo, modifierInfo)
+    return tableHasTruthyMatch(unitInfo, DEAD_STATE_KEYS, 1)
+        or tableHasTruthyMatch(modifierInfo, DEAD_STATE_KEYS, 1)
+end
+
+local function getMarkerDeathTimeMs(nowMs, remainingMs)
+    local remaining = tonumber(remainingMs)
+    if remaining == nil then
+        return nowMs
+    end
+    if remaining < 0 then
+        remaining = 0
+    elseif remaining > Constants.MARKER_TIMER_MS then
+        remaining = Constants.MARKER_TIMER_MS
+    end
+    return nowMs - (Constants.MARKER_TIMER_MS - remaining)
+end
+
+local function getActionBuffState(actionBuff, targetUnitId, nowMs)
+    if actionBuff == nil then
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
+        return nil, false
+    end
+
+    local currentTimeLeftMs = tonumber(actionBuff.timeLeft)
+    local stale = false
+    if targetUnitId == Tracker.last_target_unit_id
+        and actionBuff.buff_id == Tracker.last_action_buff_id
+        and currentTimeLeftMs ~= nil
+        and tonumber(Tracker.last_action_time_left_ms) ~= nil then
+        if currentTimeLeftMs >= (tonumber(Tracker.last_action_time_left_ms) - 1) then
+            if Tracker.last_action_stagnant_since_ms == nil then
+                Tracker.last_action_stagnant_since_ms = nowMs
+            elseif (nowMs - Tracker.last_action_stagnant_since_ms) >= 750 then
+                stale = true
+            end
+        else
+            Tracker.last_action_stagnant_since_ms = nil
+        end
+    else
+        Tracker.last_action_stagnant_since_ms = nil
+    end
+
+    Tracker.last_action_time_left_ms = currentTimeLeftMs
+    if stale then
+        return currentTimeLeftMs, true
+    end
+    return currentTimeLeftMs, false
 end
 
 local function resetMarker(index)
@@ -165,7 +295,7 @@ local function resetMarker(index)
     }
 end
 
-local function rememberCaughtTarget(unitId, nowMs, fishName, allowExistingReuse)
+local function rememberCaughtTarget(unitId, nowMs, fishName, allowExistingReuse, deathTimeMs)
     if unitId == nil then
         return nil
     end
@@ -179,10 +309,17 @@ local function rememberCaughtTarget(unitId, nowMs, fishName, allowExistingReuse)
 
     Tracker.catch_serial = Tracker.catch_serial + 1
     Tracker.total_catches = Tracker.total_catches + 1
+    local recordedDeathTimeMs = tonumber(deathTimeMs) or nowMs
+    local oldestAllowedTimeMs = nowMs - Constants.MARKER_TIMER_MS
+    if recordedDeathTimeMs < oldestAllowedTimeMs then
+        recordedDeathTimeMs = oldestAllowedTimeMs
+    elseif recordedDeathTimeMs > nowMs then
+        recordedDeathTimeMs = nowMs
+    end
     local caught = {
         serial = Tracker.catch_serial,
         unit_id = unitId,
-        death_time_ms = nowMs,
+        death_time_ms = recordedDeathTimeMs,
         fish_name = fishName
     }
     table.insert(Tracker.caught, caught)
@@ -214,21 +351,30 @@ local function ensureMarker(index)
 end
 
 local function scanMarkers()
+    local nowMs = getNowMs()
+    local playerName = getPlayerName()
     for markerIndex = 1, Constants.MARKER_COUNT do
         local marker = ensureMarker(markerIndex)
         local unitId = api.Unit:GetOverHeadMarkerUnitId(markerIndex)
-        if unitId ~= nil then
+        if unitId == nil then
+            resetMarker(markerIndex)
+        else
             local unitInfo = api.Unit:GetUnitInfoById(unitId)
-            if isTrackedFish(unitInfo) then
+            local trackedFishName = getTrackedFishName(unitInfo)
+            if trackedFishName ~= nil then
                 if marker.unit_id ~= unitId then
                     marker.unit_id = unitId
                     marker.death_time_ms = nil
                 end
-            else
+            elseif marker.unit_id ~= unitId then
                 resetMarker(markerIndex)
+                marker = ensureMarker(markerIndex)
+                marker.unit_id = unitId
             end
-        else
-            resetMarker(markerIndex)
+
+            if marker.unit_id == unitId and marker.death_time_ms == nil and (isOwnedByPlayer(unitInfo, playerName) or targetHasDeadState(unitInfo, nil)) then
+                marker.death_time_ms = nowMs
+            end
         end
     end
 end
@@ -256,13 +402,26 @@ local function buildTargetState(nowMs)
     local targetUnitId = api.Unit:GetUnitId("target")
     if targetUnitId == nil then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
+        Tracker.last_target_unit_id = nil
+        Tracker.last_target_health = nil
         return targetState
     end
 
     local targetInfo = api.Unit:GetUnitInfoById(targetUnitId)
     if targetInfo == nil then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
+        Tracker.last_target_unit_id = nil
+        Tracker.last_target_health = nil
         return targetState
+    end
+
+    if Tracker.last_target_unit_id ~= targetUnitId then
+        Tracker.last_action_buff_id = nil
+        Tracker.last_target_health = nil
     end
 
     local buffCount = api.Unit:UnitBuffCount("target") or 0
@@ -283,17 +442,16 @@ local function buildTargetState(nowMs)
         end
     end
 
-    if ownersMarkBuff ~= nil then
-        local playerId = api.Unit:GetUnitId("player")
-        local playerInfo = playerId ~= nil and api.Unit:GetUnitInfoById(playerId) or nil
-        if playerInfo ~= nil and targetInfo.owner_name ~= nil and targetInfo.owner_name == playerInfo.name then
-            Tracker.boat_expiration_ms = nowMs + (tonumber(ownersMarkBuff.timeLeft) or 0)
-        end
+    local playerName = getPlayerName()
+    if ownersMarkBuff ~= nil and isOwnedByPlayer(targetInfo, playerName) then
+        Tracker.boat_expiration_ms = nowMs + (tonumber(ownersMarkBuff.timeLeft) or 0)
     end
 
     if not isTrackedFish(targetInfo) then
         Tracker.last_action_buff_id = nil
-        Tracker.last_target_unit_id = targetUnitId
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
+        Tracker.last_target_unit_id = nil
         Tracker.last_target_health = nil
         return targetState
     end
@@ -302,37 +460,64 @@ local function buildTargetState(nowMs)
     targetState.visible = settings.show_target
     targetState.x = x
     targetState.y = y
-    targetState.fish_name = settings.show_fish_name and tostring(targetInfo.name or "") or ""
+    local trackedFishName = getTrackedFishName(targetInfo) or tostring(targetInfo.name or "")
+    targetState.fish_name = settings.show_fish_name and trackedFishName or ""
 
     local fishHealth = tonumber(api.Unit:UnitHealth("target"))
+    local modifierInfo = nil
+    if api.Unit ~= nil and api.Unit.UnitModifierInfo ~= nil then
+        local ok, value = pcall(function()
+            return api.Unit:UnitModifierInfo("target")
+        end)
+        if ok then
+            modifierInfo = value
+        end
+    end
     local isNewTarget = Tracker.last_target_unit_id ~= targetUnitId
     local wasAliveBefore = tonumber(Tracker.last_target_health) ~= nil and tonumber(Tracker.last_target_health) > 0
-    if fishHealth ~= nil and fishHealth <= 0 then
+    local targetOwnedByPlayer = isOwnedByPlayer(targetInfo, playerName)
+    local targetLooksDead = targetHasDeadState(targetInfo, modifierInfo)
+    local signedTimerMs = ownersMarkBuff ~= nil and tonumber(ownersMarkBuff.timeLeft) or nil
+    local actionTimeLeftMs, actionBuffStale = getActionBuffState(actionBuff, targetUnitId, nowMs)
+    if actionBuffStale then
+        actionBuff = nil
+    end
+    local targetJustDied = targetOwnedByPlayer
+        or targetLooksDead
+        or (fishHealth ~= nil and fishHealth <= 0)
+        or (fishHealth == nil and not isNewTarget and wasAliveBefore)
+        or (actionBuffStale and not isNewTarget)
+    if targetJustDied then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
         local latestCaught = findLatestCaughtForUnit(targetUnitId)
         local canReuseExisting = not wasAliveBefore and not isNewTarget and Tracker.last_target_health ~= nil
+        local deathTimeMs = getMarkerDeathTimeMs(nowMs, signedTimerMs)
         if isNewTarget or wasAliveBefore or Tracker.last_target_health == nil then
-            latestCaught = rememberCaughtTarget(targetUnitId, nowMs, targetInfo.name, canReuseExisting)
-        end
-        targetState.icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID)
-        targetState.status_text = settings.show_status_text and "Fish caught" or ""
-        targetState.coach_text = settings.show_coach and "LOOT" or ""
-        targetState.coach_hint = settings.show_coach_hint and "Pull it in before it despawns." or ""
-        if settings.show_timers and latestCaught ~= nil then
-            local remainingMs = Constants.MARKER_TIMER_MS - (nowMs - latestCaught.death_time_ms)
-            if remainingMs < 0 then
-                remainingMs = 0
-            end
-            targetState.timer_text = Shared.FormatSeconds(remainingMs / 1000, 0)
+            latestCaught = rememberCaughtTarget(targetUnitId, nowMs, trackedFishName, canReuseExisting, deathTimeMs)
         end
         for markerIndex = 1, Constants.MARKER_COUNT do
             local marker = ensureMarker(markerIndex)
             if marker.unit_id == targetUnitId and marker.death_time_ms == nil then
-                marker.death_time_ms = nowMs
+                marker.death_time_ms = deathTimeMs
             end
         end
         Tracker.last_target_unit_id = targetUnitId
-        Tracker.last_target_health = fishHealth
+        Tracker.last_target_health = 0
+        targetState.visible = false
+        targetState.icon_path = nil
+        targetState.icon_placeholder_text = ""
+        targetState.fish_name = ""
+        targetState.status_text = ""
+        targetState.coach_text = ""
+        targetState.coach_hint = ""
+        targetState.timer_text = ""
+        targetState.keybind_text = ""
+        targetState.emphasis = nil
+        targetState.strength_visible = false
+        targetState.strength_icon_path = nil
+        targetState.strength_timer_text = ""
         return targetState
     end
 
@@ -358,16 +543,20 @@ local function buildTargetState(nowMs)
         end
         targetState.emphasis = buffInfo ~= nil and buffInfo.emphasis or nil
         if settings.show_timers then
-            targetState.timer_text = Shared.FormatSeconds((tonumber(actionBuff.timeLeft) or 0) / 1000, 1)
+            targetState.timer_text = Shared.FormatSeconds((actionTimeLeftMs or 0) / 1000, 1)
         end
     elseif strengthBuff ~= nil then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
         targetState.icon_placeholder_text = "TUG"
         targetState.status_text = settings.show_status_text and "Strength contest" or ""
         targetState.coach_text = settings.show_coach and "HOLD ON" or ""
         targetState.coach_hint = settings.show_coach_hint and "Keep pace and wait for the next prompt." or ""
     elseif settings.show_wait then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
         targetState.icon_placeholder_text = "GLUB"
         targetState.status_text = settings.show_status_text and "Waiting for prompt" or ""
         targetState.coach_text = settings.show_coach and "READY" or ""
@@ -377,6 +566,8 @@ local function buildTargetState(nowMs)
         end
     else
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
     end
 
     if strengthBuff ~= nil then
@@ -577,6 +768,8 @@ function Tracker.Reset()
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
     Tracker.last_action_buff_id = nil
+    Tracker.last_action_time_left_ms = nil
+    Tracker.last_action_stagnant_since_ms = nil
     Tracker.ui_state = {
         target = {
             visible = false,

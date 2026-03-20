@@ -31,9 +31,12 @@ local Ui = {
     on_settings_changed = nil
 }
 
+local HELPER_SCALE_OPTIONS = { 0.8, 1.0, 1.2, 1.4, 1.6 }
+
 local SETTINGS_ROWS = {
     { label = "Addon", key = "enabled" },
     { label = "Target HUD", key = "show_target" },
+    { label = "HUD Size", key = "helper_scale", kind = "cycle" },
     { label = "Fish Name", key = "show_fish_name" },
     { label = "Status Text", key = "show_status_text" },
     { label = "Coach", key = "show_coach" },
@@ -67,6 +70,56 @@ local function getAlignCenter()
         return ALIGN.CENTER
     end
     return nil
+end
+
+local function roundNumber(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local function scaleValue(value, scale)
+    return roundNumber((tonumber(value) or 0) * (tonumber(scale) or 1))
+end
+
+local function safeSetExtent(widget, width, height)
+    if widget == nil or widget.SetExtent == nil then
+        return
+    end
+    pcall(function()
+        widget:SetExtent(roundNumber(width), roundNumber(height))
+    end)
+end
+
+local function normalizeHelperScale(value)
+    local number = tonumber(value) or 1
+    local closest = HELPER_SCALE_OPTIONS[1]
+    local bestDiff = math.abs(number - closest)
+    for _, candidate in ipairs(HELPER_SCALE_OPTIONS) do
+        local diff = math.abs(number - candidate)
+        if diff < bestDiff then
+            closest = candidate
+            bestDiff = diff
+        end
+    end
+    return closest
+end
+
+local function getHelperScale()
+    local settings = Shared.EnsureSettings()
+    local scale = normalizeHelperScale(settings.helper_scale)
+    settings.helper_scale = scale
+    return scale
+end
+
+local function scaledFontSize(baseSize)
+    local scaled = scaleValue(baseSize, getHelperScale())
+    if scaled < 10 then
+        scaled = 10
+    end
+    return scaled
+end
+
+local function getHelperScaleLabel()
+    return string.format("%d%%", roundNumber(getHelperScale() * 100))
 end
 
 local function safeSetText(widget, text)
@@ -323,6 +376,84 @@ local function setLabelStyle(label, fontSize, color)
     end
 end
 
+local function applyHelperScale()
+    local scale = getHelperScale()
+
+    safeSetExtent(Ui.target_canvas, 420 * scale, 132 * scale)
+    safeAnchor(Ui.target_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(12, scale), scaleValue(34, scale))
+    safeSetExtent(Ui.target_icon, 44 * scale, 44 * scale)
+    safeAnchor(Ui.target_icon_mask, "TOPLEFT", Ui.target_icon, "TOPLEFT", scaleValue(1, scale), scaleValue(1, scale))
+    safeAnchor(Ui.target_icon_mask, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", scaleValue(-1, scale), scaleValue(-1, scale))
+    safeAnchor(Ui.target_glow, "TOPLEFT", Ui.target_icon, "TOPLEFT", scaleValue(-4, scale), scaleValue(-4, scale))
+    safeAnchor(Ui.target_glow, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", scaleValue(4, scale), scaleValue(4, scale))
+
+    safeAnchor(Ui.target_icon_text, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(6, scale), scaleValue(52, scale))
+    safeSetExtent(Ui.target_icon_text, 60 * scale, 18 * scale)
+    setLabelStyle(Ui.target_icon_text, scaledFontSize(16), nil)
+
+    safeAnchor(Ui.target_fish_name, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(12, scale), scaleValue(6, scale))
+    safeSetExtent(Ui.target_fish_name, 260 * scale, 20 * scale)
+    setLabelStyle(Ui.target_fish_name, scaledFontSize(16), nil)
+
+    safeAnchor(Ui.target_status, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(34, scale))
+    safeSetExtent(Ui.target_status, 220 * scale, 18 * scale)
+    setLabelStyle(Ui.target_status, scaledFontSize(13), nil)
+
+    safeAnchor(Ui.target_coach, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(52, scale))
+    safeSetExtent(Ui.target_coach, 240 * scale, 28 * scale)
+
+    safeAnchor(Ui.target_hint, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(82, scale))
+    safeSetExtent(Ui.target_hint, 290 * scale, 18 * scale)
+    setLabelStyle(Ui.target_hint, scaledFontSize(13), nil)
+
+    safeAnchor(Ui.target_keybind, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(102, scale))
+    safeSetExtent(Ui.target_keybind, 210 * scale, 18 * scale)
+    setLabelStyle(Ui.target_keybind, scaledFontSize(13), nil)
+
+    safeAnchor(Ui.target_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(-4, scale), scaleValue(94, scale))
+    safeSetExtent(Ui.target_timer, 72 * scale, 18 * scale)
+
+    safeAnchor(Ui.strength_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(360, scale), scaleValue(34, scale))
+    safeSetExtent(Ui.strength_icon, 44 * scale, 44 * scale)
+
+    safeAnchor(Ui.strength_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(346, scale), scaleValue(102, scale))
+    safeSetExtent(Ui.strength_timer, 70 * scale, 18 * scale)
+    setLabelStyle(Ui.strength_timer, scaledFontSize(16), nil)
+
+    for _, row in ipairs(Ui.marker_rows) do
+        safeSetExtent(row.canvas, 56 * scale, 64 * scale)
+        safeAnchor(row.icon, "TOPLEFT", row.canvas, "TOPLEFT", 0, 0)
+        safeSetExtent(row.icon, 44 * scale, 44 * scale)
+        safeAnchor(row.marker_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
+        safeSetExtent(row.marker_label, 72 * scale, 18 * scale)
+        setLabelStyle(row.marker_label, scaledFontSize(14), nil)
+        safeAnchor(row.time_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
+        safeSetExtent(row.time_label, 72 * scale, 20 * scale)
+    end
+
+    for _, row in ipairs(Ui.catch_rows) do
+        safeSetExtent(row.canvas, 56 * scale, 64 * scale)
+        safeAnchor(row.icon, "TOPLEFT", row.canvas, "TOPLEFT", 0, 0)
+        safeSetExtent(row.icon, 44 * scale, 44 * scale)
+        safeAnchor(row.marker_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
+        safeSetExtent(row.marker_label, 72 * scale, 18 * scale)
+        setLabelStyle(row.marker_label, scaledFontSize(14), nil)
+        safeAnchor(row.time_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
+        safeSetExtent(row.time_label, 72 * scale, 20 * scale)
+    end
+
+    if Ui.boat_row ~= nil then
+        safeSetExtent(Ui.boat_row.canvas, 56 * scale, 64 * scale)
+        safeAnchor(Ui.boat_row.icon, "TOPLEFT", Ui.boat_row.canvas, "TOPLEFT", 0, 0)
+        safeSetExtent(Ui.boat_row.icon, 44 * scale, 44 * scale)
+        safeAnchor(Ui.boat_row.marker_label, "TOPLEFT", Ui.boat_row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
+        safeSetExtent(Ui.boat_row.marker_label, 72 * scale, 18 * scale)
+        setLabelStyle(Ui.boat_row.marker_label, scaledFontSize(14), nil)
+        safeAnchor(Ui.boat_row.time_label, "TOPLEFT", Ui.boat_row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
+        safeSetExtent(Ui.boat_row.time_label, 72 * scale, 20 * scale)
+    end
+end
+
 local function getTimerColor(timeText, defaultColor)
     local seconds = tonumber(string.match(tostring(timeText or ""), "([%d%.]+)s"))
     if seconds ~= nil and seconds <= Constants.WARNING_TIME_SECONDS then
@@ -395,6 +526,26 @@ local function toggleSetting(settingKey)
     notifySettingsChanged()
 end
 
+local function cycleHelperScale()
+    local settings = Shared.EnsureSettings()
+    local current = normalizeHelperScale(settings.helper_scale)
+    local index = 1
+    for optionIndex, optionValue in ipairs(HELPER_SCALE_OPTIONS) do
+        if optionValue == current then
+            index = optionIndex
+            break
+        end
+    end
+    index = index + 1
+    if index > #HELPER_SCALE_OPTIONS then
+        index = 1
+    end
+    settings.helper_scale = HELPER_SCALE_OPTIONS[index]
+    Shared.SaveSettings()
+    applyHelperScale()
+    notifySettingsChanged()
+end
+
 local function startFishingSession()
     Shared.StartFishingSession(Shared.GetUiNowMs())
     notifySettingsChanged()
@@ -426,7 +577,11 @@ local function createSettingsRow(parent, rowIndex, title, settingKey)
         92,
         24,
         function()
-            toggleSetting(settingKey)
+            if settingKey == "helper_scale" then
+                cycleHelperScale()
+            else
+                toggleSetting(settingKey)
+            end
         end
     )
     Ui.settings_controls[settingKey] = button
@@ -621,13 +776,19 @@ function Ui.Init(callbacks)
     createTimerRows()
     createBoatRow()
     createSettingsWindow()
+    applyHelperScale()
 end
 
 function Ui.RefreshSettings()
     local settings = Shared.EnsureSettings()
+    applyHelperScale()
     for key, button in pairs(Ui.settings_controls) do
         if button ~= nil and button.SetText ~= nil then
-            button:SetText(settings[key] and "On" or "Off")
+            if key == "helper_scale" then
+                button:SetText(getHelperScaleLabel())
+            else
+                button:SetText(settings[key] and "On" or "Off")
+            end
         end
     end
 end
@@ -662,14 +823,16 @@ function Ui.Render(uiState)
     end
 
     local target = uiState.target or {}
+    local helperScale = getHelperScale()
     local hasPlaceholder = type(target.icon_placeholder_text) == "string" and target.icon_placeholder_text ~= ""
-    local targetVisible = target.visible and ((type(target.icon_path) == "string" and target.icon_path ~= "") or hasPlaceholder)
+    local hasIcon = type(target.icon_path) == "string" and target.icon_path ~= ""
+    local targetVisible = target.visible and (hasIcon or hasPlaceholder)
     safeSetVisible(Ui.target_canvas, targetVisible)
     if targetVisible then
-        if type(target.icon_path) == "string" and target.icon_path ~= "" then
+        if hasIcon then
             safeSetIcon(Ui.target_icon, target.icon_path)
         end
-        safeSetVisible(Ui.target_icon, true)
+        safeSetVisible(Ui.target_icon, hasIcon)
         safeSetDrawableVisible(Ui.target_icon_mask, hasPlaceholder)
         safeSetText(Ui.target_icon_text, hasPlaceholder and target.icon_placeholder_text or "")
         safeSetVisible(Ui.target_icon_text, hasPlaceholder)
@@ -680,18 +843,18 @@ function Ui.Render(uiState)
         safeSetText(Ui.target_keybind, target.keybind_text or "")
         safeSetText(Ui.target_timer, target.timer_text or "")
         if target.emphasis == "big_reel_in" then
-            setLabelStyle(Ui.target_coach, 24, { 1, 0.92, 0.3, 1 })
-            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
+            setLabelStyle(Ui.target_coach, scaledFontSize(24), { 1, 0.92, 0.3, 1 })
+            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 0.95, 0.75, 0.1, 0.28 })
             safeSetDrawableVisible(Ui.target_glow, true)
         elseif target.emphasis == "reel_in" then
-            setLabelStyle(Ui.target_coach, 24, { 1, 0.58, 0.18, 1 })
-            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
+            setLabelStyle(Ui.target_coach, scaledFontSize(24), { 1, 0.58, 0.18, 1 })
+            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 1, 0.45, 0.1, 0.24 })
             safeSetDrawableVisible(Ui.target_glow, true)
         else
-            setLabelStyle(Ui.target_coach, 22, { 0.85, 0.9, 1, 1 })
-            setLabelStyle(Ui.target_timer, 16, getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
+            setLabelStyle(Ui.target_coach, scaledFontSize(22), { 0.85, 0.9, 1, 1 })
+            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
             safeSetDrawableVisible(Ui.target_glow, false)
         end
 
@@ -702,6 +865,7 @@ function Ui.Render(uiState)
         end
         safeSetText(Ui.strength_timer, target.strength_timer_text or "")
     else
+        safeSetVisible(Ui.target_icon, false)
         safeSetDrawableVisible(Ui.target_icon_mask, false)
         safeSetVisible(Ui.target_icon_text, false)
         safeSetDrawableVisible(Ui.target_glow, false)
@@ -709,16 +873,19 @@ function Ui.Render(uiState)
 
     local markers = uiState.markers or {}
     local activeCount = 0
+    local rowSpacing = 50 * helperScale
+    local rowBaseOffset = -125 * helperScale
+    local rowBaseY = 200 * helperScale
     for index = 1, Constants.MARKER_COUNT do
         local row = Ui.marker_rows[index]
         local data = markers[index]
         if row ~= nil and data ~= nil then
-            local offsetX = (activeCount * 50) - 125
-            safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, 200)
+            local offsetX = (activeCount * rowSpacing) + rowBaseOffset
+            safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, rowBaseY)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
             safeSetText(row.marker_label, tostring(data.index or index))
-            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
+            setLabelStyle(row.time_label, scaledFontSize(18), getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
             safeSetVisible(row.canvas, true)
             activeCount = activeCount + 1
         elseif row ~= nil then
@@ -732,12 +899,12 @@ function Ui.Render(uiState)
         local row = Ui.catch_rows[index]
         local data = catches[index]
         if row ~= nil and data ~= nil and type(data.icon_path) == "string" and data.icon_path ~= "" then
-            local offsetX = ((activeCount + catchCount) * 50) - 125
-            safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, 200)
+            local offsetX = ((activeCount + catchCount) * rowSpacing) + rowBaseOffset
+            safeAnchor(row.canvas, "TOP", "UIParent", "CENTER", offsetX, rowBaseY)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
             safeSetText(row.marker_label, tostring(data.serial or index))
-            setLabelStyle(row.time_label, 18, getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
+            setLabelStyle(row.time_label, scaledFontSize(18), getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
             safeSetVisible(row.canvas, true)
             catchCount = catchCount + 1
         elseif row ~= nil then
@@ -748,11 +915,11 @@ function Ui.Render(uiState)
     local boat = uiState.boat or {}
     if Ui.boat_row ~= nil then
         if boat.visible and type(boat.icon_path) == "string" and boat.icon_path ~= "" then
-            local offsetX = ((activeCount + catchCount) * 50) - 125
-            safeAnchor(Ui.boat_row.canvas, "TOP", "UIParent", "CENTER", offsetX, 200)
+            local offsetX = ((activeCount + catchCount) * rowSpacing) + rowBaseOffset
+            safeAnchor(Ui.boat_row.canvas, "TOP", "UIParent", "CENTER", offsetX, rowBaseY)
             safeSetIcon(Ui.boat_row.icon, boat.icon_path)
             safeSetText(Ui.boat_row.time_label, boat.timer_text or "")
-            setLabelStyle(Ui.boat_row.time_label, 18, getTimerColor(boat.timer_text or "", { 0.3, 0.6, 1, 1 }))
+            setLabelStyle(Ui.boat_row.time_label, scaledFontSize(18), getTimerColor(boat.timer_text or "", { 0.3, 0.6, 1, 1 }))
             safeSetVisible(Ui.boat_row.canvas, true)
         else
             safeSetVisible(Ui.boat_row.canvas, false)

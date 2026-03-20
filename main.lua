@@ -42,7 +42,12 @@ local function normalizeDeltaMs(dt)
 end
 
 local function renderNow()
-    Ui.Render(Tracker.GetUiState())
+    local ok, err = pcall(function()
+        Ui.Render(Tracker.GetUiState())
+    end)
+    if not ok and api.Log ~= nil and api.Log.Err ~= nil then
+        api.Log:Err("[Nuzi Fishing] Render error: " .. tostring(err))
+    end
 end
 
 local function onUpdate(dt)
@@ -62,7 +67,18 @@ local function onUpdate(dt)
         return
     end
 
-    Ui.Render(Tracker.Update(Constants.UPDATE_INTERVAL_MS))
+    local ok, err = pcall(function()
+        Ui.Render(Tracker.Update(Constants.UPDATE_INTERVAL_MS))
+    end)
+    if not ok then
+        if api.Log ~= nil and api.Log.Err ~= nil then
+            api.Log:Err("[Nuzi Fishing] Update error: " .. tostring(err))
+        end
+        pcall(function()
+            Tracker.Reset()
+            Ui.HideHud()
+        end)
+    end
 end
 
 local function onUiReloaded()

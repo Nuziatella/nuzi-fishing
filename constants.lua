@@ -92,6 +92,7 @@ Constants.FISH_NAMES = {
 
 Constants.DEFAULT_SETTINGS = {
     enabled = true,
+    helper_scale = 1,
     target_hud_x = 760,
     target_hud_y = 360,
     session_x = 30,
