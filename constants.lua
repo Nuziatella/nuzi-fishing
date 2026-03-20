@@ -3,7 +3,7 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "1.4.0"
+Constants.ADDON_VERSION = "1.4.1"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
 
