@@ -69,36 +69,8 @@ local function tooltipMentionsFishingRod(value)
 end
 
 local function updateEquippedFishingRod(deltaMs)
-    Tracker.equip_elapsed_ms = Tracker.equip_elapsed_ms + deltaMs
-    if Tracker.equip_elapsed_ms < 500 then
-        return
-    end
     Tracker.equip_elapsed_ms = 0
-
-    local foundRod = false
-    if api.Equipment ~= nil then
-        for slotIdx = 0, 20 do
-            local tooltipText = nil
-            local tooltipInfo = nil
-            if api.Equipment.GetEquippedItemTooltipText ~= nil then
-                pcall(function()
-                    tooltipText = api.Equipment:GetEquippedItemTooltipText("player", slotIdx)
-                end)
-            end
-            if api.Equipment.GetEquippedItemTooltipInfo ~= nil then
-                pcall(function()
-                    tooltipInfo = api.Equipment:GetEquippedItemTooltipInfo(slotIdx)
-                end)
-            end
-            if tooltipMentionsFishingRod(tooltipText)
-                or tooltipMentionsFishingRod(tooltipInfo ~= nil and tooltipInfo.name or nil)
-                or tooltipMentionsFishingRod(tooltipInfo ~= nil and tooltipInfo.item_name or nil) then
-                foundRod = true
-                break
-            end
-        end
-    end
-    Tracker.has_fishing_rod = foundRod
+    Tracker.has_fishing_rod = false
 end
 
 local function getBuffIconPath(buffId)

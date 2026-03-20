@@ -620,7 +620,6 @@ function Ui.Init(callbacks)
     createTargetHud()
     createTimerRows()
     createBoatRow()
-    createSessionWindow()
     createSettingsWindow()
 end
 
@@ -761,6 +760,9 @@ function Ui.Render(uiState)
     end
 
     local session = uiState.session or {}
+    if session.visible and Ui.session_window == nil then
+        createSessionWindow()
+    end
     safeSetVisible(Ui.session_window, session.visible)
     if session.visible then
         safeSetText(Ui.session_title, session.title_text or "")
