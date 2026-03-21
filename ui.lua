@@ -446,6 +446,40 @@ local function enableSessionToggleDrag(window)
     end
 end
 
+local function attachSessionToggleDrag(widget)
+    if widget == nil or widget.SetHandler == nil then
+        return
+    end
+    if widget.RegisterForDrag ~= nil then
+        widget:RegisterForDrag("LeftButton")
+    end
+    if widget.EnableDrag ~= nil then
+        widget:EnableDrag(true)
+    end
+    widget:SetHandler("OnDragStart", function()
+        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.StartMoving ~= nil then
+            Ui.session_toggle_window:StartMoving()
+        end
+    end)
+    widget:SetHandler("OnDragStop", function()
+        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.StopMovingOrSizing ~= nil then
+            Ui.session_toggle_window:StopMovingOrSizing()
+        end
+        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.GetOffset ~= nil then
+            local ok, x, y = pcall(function()
+                return Ui.session_toggle_window:GetOffset()
+            end)
+            if ok then
+                local settings = Shared.EnsureSettings()
+                settings.session_x = tonumber(x) or settings.session_x
+                settings.session_y = (tonumber(y) or (settings.session_y - 28)) + 28
+                Shared.SaveSettings()
+                applySessionPosition()
+            end
+        end
+    end)
+end
+
 local function applyCommonWindowBehavior(window)
     if window == nil then
         return
@@ -910,6 +944,7 @@ local function createSessionToggle()
     enableSessionToggleDrag(window)
     Ui.session_toggle_button = createButton("NuziFishingSessionToggleButton", window, "NF", 0, 0, 34, 24, toggleSessionPanel)
     safeSetText(Ui.session_toggle_button, "NF")
+    attachSessionToggleDrag(Ui.session_toggle_button)
 end
 
 local function createSettingsWindow()
