@@ -3,7 +3,7 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "1.4.1"
+Constants.ADDON_VERSION = "1.4.2"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
 
@@ -71,6 +71,7 @@ Constants.STRENGTH_CONTEST_BUFF_ID = 5715
 Constants.OWNERS_MARK_BUFF_ID = 4867
 Constants.DEAD_FISH_ICON_BUFF_ID = 4832
 Constants.WAITING_ICON_BUFF_ID = 3710
+Constants.DESPAWN_TRACKER_ICON_BUFF_ID = Constants.WAITING_ICON_BUFF_ID
 
 Constants.FISH_NAMES = {
     ["Arowana"] = true,
@@ -117,6 +118,7 @@ Constants.DEFAULT_SETTINGS = {
     show_timers = true,
     show_wait = true,
     show_session = true,
+    show_session_panel = true,
     show_target_buff_icon = false
 }
 

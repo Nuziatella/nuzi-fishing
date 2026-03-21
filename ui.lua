@@ -20,6 +20,8 @@ local Ui = {
     marker_rows = {},
     catch_rows = {},
     boat_row = nil,
+    session_toggle_window = nil,
+    session_toggle_button = nil,
     session_window = nil,
     session_title = nil,
     session_labels = {},
@@ -293,11 +295,13 @@ local function getSessionPosition()
 end
 
 local function applySessionPosition()
-    if Ui.session_window == nil then
-        return
-    end
     local x, y = getSessionPosition()
-    safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
+    if Ui.session_toggle_window ~= nil then
+        safeAnchor(Ui.session_toggle_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y - 28))
+    end
+    if Ui.session_window ~= nil then
+        safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
+    end
 end
 
 local function enableTargetHudDrag(canvas)
@@ -398,6 +402,42 @@ local function enableSessionDrag(window)
                     local settings = Shared.EnsureSettings()
                     settings.session_x = tonumber(x) or settings.session_x
                     settings.session_y = tonumber(y) or settings.session_y
+                    Shared.SaveSettings()
+                    applySessionPosition()
+                end
+            end
+        end)
+    end
+end
+
+local function enableSessionToggleDrag(window)
+    if window == nil then
+        return
+    end
+    if window.RegisterForDrag ~= nil then
+        window:RegisterForDrag("LeftButton")
+    end
+    if window.EnableDrag ~= nil then
+        window:EnableDrag(true)
+    end
+    if window.SetHandler ~= nil then
+        window:SetHandler("OnDragStart", function(self)
+            if self.StartMoving ~= nil then
+                self:StartMoving()
+            end
+        end)
+        window:SetHandler("OnDragStop", function(self)
+            if self.StopMovingOrSizing ~= nil then
+                self:StopMovingOrSizing()
+            end
+            if self.GetOffset ~= nil then
+                local ok, x, y = pcall(function()
+                    return self:GetOffset()
+                end)
+                if ok then
+                    local settings = Shared.EnsureSettings()
+                    settings.session_x = tonumber(x) or settings.session_x
+                    settings.session_y = (tonumber(y) or (settings.session_y - 28)) + 28
                     Shared.SaveSettings()
                     applySessionPosition()
                 end
@@ -647,6 +687,13 @@ local function endFishingSession()
     notifySettingsChanged()
 end
 
+local function toggleSessionPanel()
+    local settings = Shared.EnsureSettings()
+    settings.show_session_panel = not settings.show_session_panel
+    Shared.SaveSettings()
+    notifySettingsChanged()
+end
+
 local function deleteFishingSession(sessionId)
     if sessionId == nil then
         return
@@ -847,6 +894,24 @@ local function createSessionWindow()
     end
 end
 
+local function createSessionToggle()
+    if Ui.session_toggle_window ~= nil then
+        return
+    end
+
+    local window = safeCreateEmptyWindow("NuziFishingSessionToggle")
+    if window == nil then
+        return
+    end
+    safeSetExtent(window, 34, 24)
+    safeSetVisible(window, false)
+    Ui.session_toggle_window = window
+    applySessionPosition()
+    enableSessionToggleDrag(window)
+    Ui.session_toggle_button = createButton("NuziFishingSessionToggleButton", window, "NF", 0, 0, 34, 24, toggleSessionPanel)
+    safeSetText(Ui.session_toggle_button, "NF")
+end
+
 local function createSettingsWindow()
     if Ui.settings_window ~= nil then
         return
@@ -874,6 +939,7 @@ function Ui.Init(callbacks)
     createTargetHud()
     createTimerRows()
     createBoatRow()
+    createSessionToggle()
     createSettingsWindow()
     applyHelperScale()
 end
@@ -909,6 +975,7 @@ end
 
 function Ui.HideHud()
     safeSetVisible(Ui.target_canvas, false)
+    safeSetVisible(Ui.session_toggle_window, false)
     safeSetVisible(Ui.session_window, false)
     for _, row in ipairs(Ui.marker_rows) do
         safeSetVisible(row.canvas, false)
@@ -930,6 +997,8 @@ function Ui.Render(uiState)
 
     local target = uiState.target or {}
     local helperScale = getHelperScale()
+    safeSetVisible(Ui.session_toggle_window, settings.show_session)
+    safeSetText(Ui.session_toggle_button, "NF")
     local hasPlaceholder = type(target.icon_placeholder_text) == "string" and target.icon_placeholder_text ~= ""
     local hasIcon = type(target.icon_path) == "string" and target.icon_path ~= ""
     local targetVisible = target.visible and (hasIcon or hasPlaceholder)
@@ -1104,6 +1173,8 @@ function Ui.Unload()
     Ui.marker_rows = {}
     Ui.catch_rows = {}
     Ui.boat_row = nil
+    Ui.session_toggle_window = nil
+    Ui.session_toggle_button = nil
     Ui.session_window = nil
     Ui.session_title = nil
     Ui.session_labels = {}

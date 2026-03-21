@@ -168,6 +168,14 @@ local function getBuffIconPath(buffId)
     return path
 end
 
+local function getDespawnTrackerIconPath()
+    local path = getBuffIconPath(Constants.DESPAWN_TRACKER_ICON_BUFF_ID)
+    if type(path) == "string" and path ~= "" then
+        return path
+    end
+    return getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID)
+end
+
 local function getActionHotkey(buffId)
     local buffInfo = Constants.ACTION_BUFF_INFO[buffId]
     if type(buffInfo) ~= "table" or type(buffInfo.hotkey_actions) ~= "table" then
@@ -675,7 +683,7 @@ local function buildCaughtStates(nowMs)
             if not isTrackedByMarker then
                 table.insert(catches, {
                     serial = caught.serial,
-                    icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID),
+                    icon_path = getDespawnTrackerIconPath(),
                     timer_text = settings.show_timers and Shared.FormatSeconds(remainingMs / 1000, 0) or ""
                 })
             end
@@ -699,7 +707,7 @@ local function buildMarkerStates(nowMs)
             if remainingMs > 0 then
                 table.insert(markers, {
                     index = markerIndex,
-                    icon_path = getBuffIconPath(Constants.DEAD_FISH_ICON_BUFF_ID),
+                    icon_path = getDespawnTrackerIconPath(),
                     timer_text = settings.show_timers and Shared.FormatSeconds(remainingMs / 1000, 0) or ""
                 })
             else
@@ -750,6 +758,10 @@ local function buildSessionState(nowMs, markers, catches)
     }
 
     if not settings.show_session then
+        return session
+    end
+
+    if not settings.show_session_panel then
         return session
     end
 
