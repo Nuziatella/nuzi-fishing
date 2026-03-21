@@ -9,10 +9,8 @@ local Tracker = {
     total_catches = 0,
     boat_expiration_ms = nil,
     marker_elapsed_ms = Constants.MARKER_SCAN_MS,
-    equip_elapsed_ms = 500,
     icon_cache = {},
     hotkey_cache = {},
-    has_fishing_rod = false,
     ui_state = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
@@ -23,6 +21,97 @@ local Tracker = {
 
 local findLatestCaughtForUnit
 local DEAD_STATE_KEYS = { "dead", "death", "ghost", "isdead", "is_dead" }
+
+local function safeGetUnitId(unit)
+    if api.Unit == nil or api.Unit.GetUnitId == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:GetUnitId(unit)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+local function safeGetUnitInfoById(unitId)
+    if unitId == nil or api.Unit == nil or api.Unit.GetUnitInfoById == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:GetUnitInfoById(unitId)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+local function safeUnitBuffCount(unit)
+    if api.Unit == nil or api.Unit.UnitBuffCount == nil then
+        return 0
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitBuffCount(unit)
+    end)
+    if ok then
+        return tonumber(value) or 0
+    end
+    return 0
+end
+
+local function safeUnitBuff(unit, index)
+    if api.Unit == nil or api.Unit.UnitBuff == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitBuff(unit, index)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+local function safeUnitHealth(unit)
+    if api.Unit == nil or api.Unit.UnitHealth == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitHealth(unit)
+    end)
+    if ok then
+        return tonumber(value)
+    end
+    return nil
+end
+
+local function safeUnitModifierInfo(unit)
+    if api.Unit == nil or api.Unit.UnitModifierInfo == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitModifierInfo(unit)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+local function safeGetOverHeadMarkerUnitId(markerIndex)
+    if api.Unit == nil or api.Unit.GetOverHeadMarkerUnitId == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:GetOverHeadMarkerUnitId(markerIndex)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
 
 local function getUnitScreenPosition(unit)
     local x, y = nil, nil
@@ -60,20 +149,6 @@ local function normalizeDeltaMs(dt)
         value = value * 1000
     end
     return value
-end
-
-local function tooltipMentionsFishingRod(value)
-    if type(value) ~= "string" or value == "" then
-        return false
-    end
-    local lower = string.lower(value)
-    return string.find(lower, "fishing rod", 1, true) ~= nil
-        or (string.find(lower, "fishing", 1, true) ~= nil and string.find(lower, "rod", 1, true) ~= nil)
-end
-
-local function updateEquippedFishingRod(deltaMs)
-    Tracker.equip_elapsed_ms = 0
-    Tracker.has_fishing_rod = false
 end
 
 local function getBuffIconPath(buffId)
@@ -218,11 +293,11 @@ local function isTrackedFish(unitInfo)
 end
 
 local function getPlayerName()
-    local playerId = api.Unit:GetUnitId("player")
+    local playerId = safeGetUnitId("player")
     if playerId == nil then
         return nil
     end
-    local playerInfo = api.Unit:GetUnitInfoById(playerId)
+    local playerInfo = safeGetUnitInfoById(playerId)
     if playerInfo == nil then
         return nil
     end
@@ -355,11 +430,11 @@ local function scanMarkers()
     local playerName = getPlayerName()
     for markerIndex = 1, Constants.MARKER_COUNT do
         local marker = ensureMarker(markerIndex)
-        local unitId = api.Unit:GetOverHeadMarkerUnitId(markerIndex)
+        local unitId = safeGetOverHeadMarkerUnitId(markerIndex)
         if unitId == nil then
             resetMarker(markerIndex)
         else
-            local unitInfo = api.Unit:GetUnitInfoById(unitId)
+            local unitInfo = safeGetUnitInfoById(unitId)
             local trackedFishName = getTrackedFishName(unitInfo)
             if trackedFishName ~= nil then
                 if marker.unit_id ~= unitId then
@@ -399,7 +474,7 @@ local function buildTargetState(nowMs)
         strength_timer_text = ""
     }
 
-    local targetUnitId = api.Unit:GetUnitId("target")
+    local targetUnitId = safeGetUnitId("target")
     if targetUnitId == nil then
         Tracker.last_action_buff_id = nil
         Tracker.last_action_time_left_ms = nil
@@ -409,7 +484,7 @@ local function buildTargetState(nowMs)
         return targetState
     end
 
-    local targetInfo = api.Unit:GetUnitInfoById(targetUnitId)
+    local targetInfo = safeGetUnitInfoById(targetUnitId)
     if targetInfo == nil then
         Tracker.last_action_buff_id = nil
         Tracker.last_action_time_left_ms = nil
@@ -421,16 +496,18 @@ local function buildTargetState(nowMs)
 
     if Tracker.last_target_unit_id ~= targetUnitId then
         Tracker.last_action_buff_id = nil
+        Tracker.last_action_time_left_ms = nil
+        Tracker.last_action_stagnant_since_ms = nil
         Tracker.last_target_health = nil
     end
 
-    local buffCount = api.Unit:UnitBuffCount("target") or 0
+    local buffCount = safeUnitBuffCount("target")
     local actionBuff = nil
     local strengthBuff = nil
     local ownersMarkBuff = nil
 
     for index = 1, buffCount do
-        local buff = api.Unit:UnitBuff("target", index)
+        local buff = safeUnitBuff("target", index)
         if buff ~= nil then
             if buff.buff_id == Constants.OWNERS_MARK_BUFF_ID then
                 ownersMarkBuff = buff
@@ -463,16 +540,8 @@ local function buildTargetState(nowMs)
     local trackedFishName = getTrackedFishName(targetInfo) or tostring(targetInfo.name or "")
     targetState.fish_name = settings.show_fish_name and trackedFishName or ""
 
-    local fishHealth = tonumber(api.Unit:UnitHealth("target"))
-    local modifierInfo = nil
-    if api.Unit ~= nil and api.Unit.UnitModifierInfo ~= nil then
-        local ok, value = pcall(function()
-            return api.Unit:UnitModifierInfo("target")
-        end)
-        if ok then
-            modifierInfo = value
-        end
-    end
+    local fishHealth = safeUnitHealth("target")
+    local modifierInfo = safeUnitModifierInfo("target")
     local isNewTarget = Tracker.last_target_unit_id ~= targetUnitId
     local wasAliveBefore = tonumber(Tracker.last_target_health) ~= nil and tonumber(Tracker.last_target_health) > 0
     local targetOwnedByPlayer = isOwnedByPlayer(targetInfo, playerName)
@@ -666,17 +735,6 @@ local function buildBoatState(nowMs)
     return boatState
 end
 
-local function expireIdleSession(nowMs)
-    local activeSession = Shared.GetActiveFishingSession()
-    if activeSession == nil then
-        return
-    end
-    local referenceMs = tonumber(activeSession.last_catch_ms) or tonumber(activeSession.started_ms) or nowMs
-    if (nowMs - referenceMs) >= Constants.SESSION_IDLE_TIMEOUT_MS then
-        Shared.EndFishingSession(nowMs)
-    end
-end
-
 local function buildSessionState(nowMs, markers, catches)
     local settings = Shared.EnsureSettings()
     local session = {
@@ -691,7 +749,7 @@ local function buildSessionState(nowMs, markers, catches)
         has_active = false
     }
 
-    if not settings.show_session or not Tracker.has_fishing_rod then
+    if not settings.show_session then
         return session
     end
 
@@ -762,9 +820,7 @@ function Tracker.Reset()
     Tracker.total_catches = 0
     Tracker.boat_expiration_ms = nil
     Tracker.marker_elapsed_ms = Constants.MARKER_SCAN_MS
-    Tracker.equip_elapsed_ms = 500
     Tracker.hotkey_cache = {}
-    Tracker.has_fishing_rod = false
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
     Tracker.last_action_buff_id = nil
@@ -820,14 +876,12 @@ function Tracker.Update(dt)
 
     local deltaMs = normalizeDeltaMs(dt)
     Tracker.marker_elapsed_ms = Tracker.marker_elapsed_ms + deltaMs
-    updateEquippedFishingRod(deltaMs)
     if Tracker.marker_elapsed_ms >= Constants.MARKER_SCAN_MS then
         Tracker.marker_elapsed_ms = 0
         scanMarkers()
     end
 
     local nowMs = getNowMs()
-    expireIdleSession(nowMs)
     local markers = buildMarkerStates(nowMs)
     local catches = buildCaughtStates(nowMs)
     Tracker.ui_state = {

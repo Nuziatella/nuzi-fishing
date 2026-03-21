@@ -6,7 +6,13 @@ local Shared = {
 }
 
 local function isEmptyTable(value)
-    return type(value) == "table" and next(value) == nil
+    if type(value) ~= "table" then
+        return false
+    end
+    for _ in pairs(value) do
+        return false
+    end
+    return true
 end
 
 local function pruneUnknown(into, defaults)
@@ -136,7 +142,7 @@ end
 
 function Shared.GetActiveFishingSession()
     local log = Shared.GetSessionLog()
-    if not log.active or next(log.current) == nil then
+    if not log.active or isEmptyTable(log.current) then
         return nil
     end
     return log.current
@@ -149,7 +155,7 @@ end
 
 function Shared.StartFishingSession(nowMs)
     local log = Shared.GetSessionLog()
-    if log.active and next(log.current) ~= nil then
+    if log.active and not isEmptyTable(log.current) then
         return log.current
     end
     local id = tonumber(log.next_id) or 1
@@ -168,7 +174,7 @@ end
 
 function Shared.EndFishingSession(nowMs)
     local log = Shared.GetSessionLog()
-    if not log.active or next(log.current) == nil then
+    if not log.active or isEmptyTable(log.current) then
         return nil
     end
     local finished = log.current
@@ -205,12 +211,8 @@ end
 
 function Shared.RecordFishingCatch(fishName, nowMs)
     local log = Shared.GetSessionLog()
-    if not log.active or next(log.current) == nil then
-        Shared.StartFishingSession(nowMs)
-        log = Shared.GetSessionLog()
-        if not log.active or next(log.current) == nil then
-            return false
-        end
+    if not log.active or isEmptyTable(log.current) then
+        return false
     end
     local current = log.current
     current.catches = (tonumber(current.catches) or 0) + 1

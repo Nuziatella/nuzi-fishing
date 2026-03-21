@@ -129,7 +129,9 @@ local function safeSetText(widget, text)
     local nextText = tostring(text or "")
     if widget.__nuzi_text ~= nextText then
         widget.__nuzi_text = nextText
-        widget:SetText(nextText)
+        pcall(function()
+            widget:SetText(nextText)
+        end)
     end
 end
 
@@ -194,7 +196,7 @@ local function safeSetDrawableColor(drawable, color)
 end
 
 local function safeAnchor(widget, point, target, relativePoint, x, y)
-    if widget == nil then
+    if widget == nil or widget.AddAnchor == nil then
         return
     end
     local key = tostring(point) .. "|" .. tostring(target) .. "|" .. tostring(relativePoint) .. "|" .. tostring(x) .. "|" .. tostring(y)
@@ -205,6 +207,71 @@ local function safeAnchor(widget, point, target, relativePoint, x, y)
         end
         widget:AddAnchor(point, target, relativePoint, x, y)
     end
+end
+
+local function safeAddAnchor(widget, anchorPoint, anchorTarget, anchorRelativePoint, anchorX, anchorY)
+    if widget == nil or widget.AddAnchor == nil then
+        return
+    end
+    pcall(function()
+        if anchorY == nil and type(anchorRelativePoint) ~= "string" then
+            widget:AddAnchor(anchorPoint, anchorTarget, anchorRelativePoint, anchorX)
+        else
+            widget:AddAnchor(anchorPoint, anchorTarget, anchorRelativePoint, anchorX, anchorY)
+        end
+    end)
+end
+
+local function safeCreateWidget(kind, id, parent)
+    if api.Interface == nil or api.Interface.CreateWidget == nil or parent == nil then
+        return nil
+    end
+    local ok, widget = pcall(function()
+        return api.Interface:CreateWidget(kind, id, parent)
+    end)
+    if ok then
+        return widget
+    end
+    return nil
+end
+
+local function safeCreateEmptyWindow(id)
+    if api.Interface == nil or api.Interface.CreateEmptyWindow == nil then
+        return nil
+    end
+    local ok, window = pcall(function()
+        return api.Interface:CreateEmptyWindow(id)
+    end)
+    if ok then
+        return window
+    end
+    return nil
+end
+
+local function safeCreateWindow(id, title, width, height)
+    if api.Interface == nil or api.Interface.CreateWindow == nil then
+        return nil
+    end
+    local ok, window = pcall(function()
+        return api.Interface:CreateWindow(id, title, width, height)
+    end)
+    if ok then
+        return window
+    end
+    return nil
+end
+
+local function safeCreateColorDrawable(parent, red, green, blue, alpha, layer)
+    if parent == nil or parent.CreateColorDrawable == nil then
+        return nil
+    end
+    local ok, drawable = pcall(function()
+        return parent:CreateColorDrawable(red, green, blue, alpha, layer)
+    end)
+    if ok then
+        return drawable
+    end
+    return nil
 end
 
 local function getTargetHudPosition()
@@ -463,32 +530,46 @@ local function getTimerColor(timeText, defaultColor)
 end
 
 local function createLabel(id, parent, x, y, width, height, fontSize, alignValue, color)
-    local label = api.Interface:CreateWidget("label", id, parent)
-    label:AddAnchor("TOPLEFT", x, y)
-    label:SetExtent(width, height)
+    local label = safeCreateWidget("label", id, parent)
+    if label == nil then
+        return nil
+    end
+    safeAnchor(label, "TOPLEFT", parent, "TOPLEFT", x, y)
+    safeSetExtent(label, width, height)
     safeSetText(label, "")
     if label.style ~= nil then
         if label.style.SetFontSize ~= nil then
-            label.style:SetFontSize(fontSize or 14)
+            pcall(function()
+                label.style:SetFontSize(fontSize or 14)
+            end)
         end
         if label.style.SetAlign ~= nil and alignValue ~= nil then
-            label.style:SetAlign(alignValue)
+            pcall(function()
+                label.style:SetAlign(alignValue)
+            end)
         end
         if label.style.SetShadow ~= nil then
-            label.style:SetShadow(true)
+            pcall(function()
+                label.style:SetShadow(true)
+            end)
         end
         if color ~= nil and label.style.SetColor ~= nil then
-            label.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+            pcall(function()
+                label.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+            end)
         end
     end
     return label
 end
 
 local function createButton(id, parent, text, x, y, width, height, onClick)
-    local button = api.Interface:CreateWidget("button", id, parent)
-    button:AddAnchor("TOPLEFT", x, y)
-    button:SetExtent(width, height)
-    button:SetText(text)
+    local button = safeCreateWidget("button", id, parent)
+    if button == nil then
+        return nil
+    end
+    safeAnchor(button, "TOPLEFT", parent, "TOPLEFT", x, y)
+    safeSetExtent(button, width, height)
+    safeSetText(button, text)
     if api.Interface ~= nil and api.Interface.ApplyButtonSkin ~= nil then
         pcall(function()
             api.Interface:ApplyButtonSkin(button, BUTTON_BASIC.DEFAULT)
@@ -501,12 +582,22 @@ local function createButton(id, parent, text, x, y, width, height, onClick)
 end
 
 local function createIcon(id, parent)
-    local icon = CreateItemIconButton(id, parent)
-    icon:Show(true)
+    if type(CreateItemIconButton) ~= "function" or parent == nil then
+        return nil
+    end
+    local ok, icon = pcall(function()
+        return CreateItemIconButton(id, parent)
+    end)
+    if not ok or icon == nil then
+        return nil
+    end
+    safeSetVisible(icon, true)
     if F_SLOT ~= nil and F_SLOT.ApplySlotSkin ~= nil and SLOT_STYLE ~= nil and icon.back ~= nil then
         local style = SLOT_STYLE.DEFAULT or SLOT_STYLE.BUFF or SLOT_STYLE.ITEM
         if style ~= nil then
-            F_SLOT.ApplySlotSkin(icon, icon.back, style)
+            pcall(function()
+                F_SLOT.ApplySlotSkin(icon, icon.back, style)
+            end)
         end
     end
     return icon
@@ -592,36 +683,33 @@ local function createTargetHud()
         return
     end
 
-    local canvas = api.Interface:CreateEmptyWindow("NuziFishingTargetHud")
-    canvas:SetExtent(420, 132)
-    canvas:Show(false)
+    local canvas = safeCreateEmptyWindow("NuziFishingTargetHud")
+    if canvas == nil then
+        return
+    end
+    safeSetExtent(canvas, 420, 132)
+    safeSetVisible(canvas, false)
     Ui.target_canvas = canvas
     applyTargetHudPosition()
     enableTargetHudDrag(canvas)
-    if canvas.CreateColorDrawable ~= nil then
-        Ui.target_bg = canvas:CreateColorDrawable(0.04, 0.04, 0.04, 0.72, "background")
-        Ui.target_bg:AddAnchor("TOPLEFT", canvas, "TOPLEFT", -10, -6)
-        Ui.target_bg:AddAnchor("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 10, 6)
-    end
+    Ui.target_bg = safeCreateColorDrawable(canvas, 0.04, 0.04, 0.04, 0.72, "background")
+    safeAddAnchor(Ui.target_bg, "TOPLEFT", canvas, "TOPLEFT", -10, -6)
+    safeAddAnchor(Ui.target_bg, "BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 10, 6)
 
     Ui.target_icon = createIcon("NuziFishingTargetIcon", canvas)
-    Ui.target_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 12, 34)
+    safeAnchor(Ui.target_icon, "TOPLEFT", canvas, "TOPLEFT", 12, 34)
 
-    if canvas.CreateColorDrawable ~= nil then
-        Ui.target_icon_mask = canvas:CreateColorDrawable(0.08, 0.18, 0.24, 0.88, "overlay")
-        Ui.target_icon_mask:AddAnchor("TOPLEFT", Ui.target_icon, "TOPLEFT", 1, 1)
-        Ui.target_icon_mask:AddAnchor("BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", -1, -1)
-        Ui.target_icon_mask:Show(false)
-    end
+    Ui.target_icon_mask = safeCreateColorDrawable(canvas, 0.08, 0.18, 0.24, 0.88, "overlay")
+    safeAnchor(Ui.target_icon_mask, "TOPLEFT", Ui.target_icon, "TOPLEFT", 1, 1)
+    safeAnchor(Ui.target_icon_mask, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", -1, -1)
+    safeSetDrawableVisible(Ui.target_icon_mask, false)
     Ui.target_icon_text = createLabel("NuziFishingIconText", canvas, 6, 52, 60, 18, 16, getAlignCenter(), { 0.82, 0.98, 1, 1 })
     safeSetVisible(Ui.target_icon_text, false)
 
-    if canvas.CreateColorDrawable ~= nil then
-        Ui.target_glow = canvas:CreateColorDrawable(1, 1, 1, 0, "background")
-        Ui.target_glow:AddAnchor("TOPLEFT", Ui.target_icon, -4, -4)
-        Ui.target_glow:AddAnchor("BOTTOMRIGHT", Ui.target_icon, 4, 4)
-        Ui.target_glow:Show(false)
-    end
+    Ui.target_glow = safeCreateColorDrawable(canvas, 1, 1, 1, 0, "background")
+    safeAnchor(Ui.target_glow, "TOPLEFT", Ui.target_icon, "TOPLEFT", -4, -4)
+    safeAnchor(Ui.target_glow, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", 4, 4)
+    safeSetDrawableVisible(Ui.target_glow, false)
 
     Ui.target_fish_name = createLabel("NuziFishingFishName", canvas, 12, 6, 260, 20, 16, getAlignLeft(), { 1, 1, 1, 1 })
     Ui.target_status = createLabel("NuziFishingStatus", canvas, 70, 34, 220, 18, 13, getAlignLeft(), { 0.8, 0.9, 1, 1 })
@@ -631,8 +719,8 @@ local function createTargetHud()
     Ui.target_timer = createLabel("NuziFishingTargetTimer", canvas, -4, 94, 72, 18, 16, getAlignCenter(), { 0, 1, 0, 1 })
 
     Ui.strength_icon = createIcon("NuziFishingStrengthIcon", canvas)
-    Ui.strength_icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 360, 34)
-    Ui.strength_icon:Show(false)
+    safeAnchor(Ui.strength_icon, "TOPLEFT", canvas, "TOPLEFT", 360, 34)
+    safeSetVisible(Ui.strength_icon, false)
     Ui.strength_timer = createLabel("NuziFishingStrengthTimer", canvas, 346, 102, 70, 18, 16, getAlignLeft(), { 1, 1, 0, 1 })
 
     attachTargetDrag(canvas)
@@ -650,27 +738,31 @@ end
 local function createTimerRows()
     if #Ui.marker_rows == 0 then
         for markerIndex = 1, Constants.MARKER_COUNT do
-            local canvas = api.Interface:CreateEmptyWindow("NuziFishingMarkerRow" .. tostring(markerIndex))
-            canvas:SetExtent(56, 64)
-            canvas:Show(false)
-            local icon = createIcon("NuziFishingMarkerIcon" .. tostring(markerIndex), canvas)
-            icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-            local label = createLabel("NuziFishingMarkerLabel" .. tostring(markerIndex), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 1, 1, 1 })
-            local time = createLabel("NuziFishingMarkerTime" .. tostring(markerIndex), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.5, 0, 1 })
-            Ui.marker_rows[markerIndex] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+            local canvas = safeCreateEmptyWindow("NuziFishingMarkerRow" .. tostring(markerIndex))
+            if canvas ~= nil then
+                safeSetExtent(canvas, 56, 64)
+                safeSetVisible(canvas, false)
+                local icon = createIcon("NuziFishingMarkerIcon" .. tostring(markerIndex), canvas)
+                safeAnchor(icon, "TOPLEFT", canvas, "TOPLEFT", 0, 0)
+                local label = createLabel("NuziFishingMarkerLabel" .. tostring(markerIndex), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 1, 1, 1 })
+                local time = createLabel("NuziFishingMarkerTime" .. tostring(markerIndex), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.5, 0, 1 })
+                Ui.marker_rows[markerIndex] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+            end
         end
     end
 
     if #Ui.catch_rows == 0 then
         for index = 1, Constants.AUTO_CATCH_COUNT do
-            local canvas = api.Interface:CreateEmptyWindow("NuziFishingCatchRow" .. tostring(index))
-            canvas:SetExtent(56, 64)
-            canvas:Show(false)
-            local icon = createIcon("NuziFishingCatchIcon" .. tostring(index), canvas)
-            icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-            local label = createLabel("NuziFishingCatchLabel" .. tostring(index), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 0.85, 0.85, 1 })
-            local time = createLabel("NuziFishingCatchTime" .. tostring(index), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.3, 0.3, 1 })
-            Ui.catch_rows[index] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+            local canvas = safeCreateEmptyWindow("NuziFishingCatchRow" .. tostring(index))
+            if canvas ~= nil then
+                safeSetExtent(canvas, 56, 64)
+                safeSetVisible(canvas, false)
+                local icon = createIcon("NuziFishingCatchIcon" .. tostring(index), canvas)
+                safeAnchor(icon, "TOPLEFT", canvas, "TOPLEFT", 0, 0)
+                local label = createLabel("NuziFishingCatchLabel" .. tostring(index), canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 1, 0.85, 0.85, 1 })
+                local time = createLabel("NuziFishingCatchTime" .. tostring(index), canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 1, 0.3, 0.3, 1 })
+                Ui.catch_rows[index] = { canvas = canvas, icon = icon, marker_label = label, time_label = time }
+            end
         end
     end
 end
@@ -680,11 +772,14 @@ local function createBoatRow()
         return
     end
 
-    local canvas = api.Interface:CreateEmptyWindow("NuziFishingBoatRow")
-    canvas:SetExtent(56, 64)
-    canvas:Show(false)
+    local canvas = safeCreateEmptyWindow("NuziFishingBoatRow")
+    if canvas == nil then
+        return
+    end
+    safeSetExtent(canvas, 56, 64)
+    safeSetVisible(canvas, false)
     local icon = createIcon("NuziFishingBoatIcon", canvas)
-    icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
+    safeAnchor(icon, "TOPLEFT", canvas, "TOPLEFT", 0, 0)
     local label = createLabel("NuziFishingBoatLabel", canvas, -8, -20, 72, 18, 14, getAlignCenter(), { 0.3, 0.6, 1, 1 })
     local time = createLabel("NuziFishingBoatTime", canvas, -8, 46, 72, 20, 18, getAlignCenter(), { 0.3, 0.6, 1, 1 })
     safeSetText(label, "Boat")
@@ -696,17 +791,18 @@ local function createSessionWindow()
         return
     end
 
-    local window = api.Interface:CreateEmptyWindow("NuziFishingSession")
-    window:SetExtent(360, 268)
-    window:Show(false)
+    local window = safeCreateEmptyWindow("NuziFishingSession")
+    if window == nil then
+        return
+    end
+    safeSetExtent(window, 360, 268)
+    safeSetVisible(window, false)
     Ui.session_window = window
     applySessionPosition()
     enableSessionDrag(window)
-    if window.CreateColorDrawable ~= nil then
-        local bg = window:CreateColorDrawable(0.05, 0.05, 0.05, 0.78, "background")
-        bg:AddAnchor("TOPLEFT", window, "TOPLEFT", -10, -8)
-        bg:AddAnchor("BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
-    end
+    local bg = safeCreateColorDrawable(window, 0.05, 0.05, 0.05, 0.78, "background")
+    safeAddAnchor(bg, "TOPLEFT", window, "TOPLEFT", -10, -8)
+    safeAddAnchor(bg, "BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
     Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 220, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
     Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 234, 0, 54, 24, startFishingSession)
     Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 294, 0, 54, 24, endFishingSession)
@@ -757,10 +853,13 @@ local function createSettingsWindow()
     end
 
     local height = 72 + (#SETTINGS_ROWS * 30)
-    local window = api.Interface:CreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, height)
-    window:AddAnchor("CENTER", "UIParent", 0, 0)
+    local window = safeCreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, height)
+    if window == nil then
+        return
+    end
+    safeAddAnchor(window, "CENTER", "UIParent", 0, 0)
     applyCommonWindowBehavior(window)
-    window:Show(false)
+    safeSetVisible(window, false)
 
     for index, row in ipairs(SETTINGS_ROWS) do
         createSettingsRow(window, index, row.label, row.key)
@@ -796,7 +895,14 @@ end
 function Ui.ToggleSettings()
     createSettingsWindow()
     if Ui.settings_window ~= nil then
-        Ui.settings_window:Show(not Ui.settings_window:IsVisible())
+        local visible = false
+        if Ui.settings_window.IsVisible ~= nil then
+            local ok, value = pcall(function()
+                return Ui.settings_window:IsVisible()
+            end)
+            visible = ok and value and true or false
+        end
+        safeSetVisible(Ui.settings_window, not visible)
         Ui.RefreshSettings()
     end
 end
@@ -978,7 +1084,7 @@ end
 function Ui.Unload()
     Ui.HideHud()
     if Ui.settings_window ~= nil then
-        Ui.settings_window:Show(false)
+        safeSetVisible(Ui.settings_window, false)
         Ui.settings_window = nil
     end
     Ui.target_canvas = nil
