@@ -3,7 +3,7 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "1.4.2"
+Constants.ADDON_VERSION = "1.4.3"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
 
@@ -13,6 +13,8 @@ Constants.MARKER_TIMER_MS = 150000
 Constants.MARKER_SCAN_MS = 250
 Constants.UPDATE_INTERVAL_MS = 16
 Constants.SESSION_IDLE_TIMEOUT_MS = 180000
+Constants.FRY_MAX_HP = 20000
+Constants.GARGANTUAN_MIN_HP = 32000
 
 Constants.ACTION_BUFF_IDS = {
     [5264] = true,

@@ -14,6 +14,7 @@ local Tracker = {
     ui_state = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
+    last_target_max_health = nil,
     last_action_buff_id = nil,
     last_action_time_left_ms = nil,
     last_action_stagnant_since_ms = nil
@@ -80,6 +81,19 @@ local function safeUnitHealth(unit)
     end
     local ok, value = pcall(function()
         return api.Unit:UnitHealth(unit)
+    end)
+    if ok then
+        return tonumber(value)
+    end
+    return nil
+end
+
+local function safeUnitMaxHealth(unit)
+    if api.Unit == nil or api.Unit.UnitMaxHealth == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitMaxHealth(unit)
     end)
     if ok then
         return tonumber(value)
@@ -413,6 +427,10 @@ local function rememberCaughtTarget(unitId, nowMs, fishName, allowExistingReuse,
     return caught
 end
 
+local function getTrackedFishDisplayName(fishName, fishMaxHealth)
+    return Shared.FormatFishCatchName(fishName, fishMaxHealth)
+end
+
 findLatestCaughtForUnit = function(unitId)
     if unitId == nil then
         return nil
@@ -489,6 +507,7 @@ local function buildTargetState(nowMs)
         Tracker.last_action_stagnant_since_ms = nil
         Tracker.last_target_unit_id = nil
         Tracker.last_target_health = nil
+        Tracker.last_target_max_health = nil
         return targetState
     end
 
@@ -499,6 +518,7 @@ local function buildTargetState(nowMs)
         Tracker.last_action_stagnant_since_ms = nil
         Tracker.last_target_unit_id = nil
         Tracker.last_target_health = nil
+        Tracker.last_target_max_health = nil
         return targetState
     end
 
@@ -507,6 +527,7 @@ local function buildTargetState(nowMs)
         Tracker.last_action_time_left_ms = nil
         Tracker.last_action_stagnant_since_ms = nil
         Tracker.last_target_health = nil
+        Tracker.last_target_max_health = nil
     end
 
     local buffCount = safeUnitBuffCount("target")
@@ -538,6 +559,7 @@ local function buildTargetState(nowMs)
         Tracker.last_action_stagnant_since_ms = nil
         Tracker.last_target_unit_id = nil
         Tracker.last_target_health = nil
+        Tracker.last_target_max_health = nil
         return targetState
     end
 
@@ -546,7 +568,12 @@ local function buildTargetState(nowMs)
     targetState.x = x
     targetState.y = y
     local trackedFishName = getTrackedFishName(targetInfo) or tostring(targetInfo.name or "")
-    targetState.fish_name = settings.show_fish_name and trackedFishName or ""
+    local fishMaxHealth = safeUnitMaxHealth("target")
+    if fishMaxHealth == nil or fishMaxHealth <= 0 then
+        fishMaxHealth = tonumber(Tracker.last_target_max_health)
+    end
+    local trackedFishDisplayName = getTrackedFishDisplayName(trackedFishName, fishMaxHealth)
+    targetState.fish_name = settings.show_fish_name and trackedFishDisplayName or ""
 
     local fishHealth = safeUnitHealth("target")
     local modifierInfo = safeUnitModifierInfo("target")
@@ -571,8 +598,9 @@ local function buildTargetState(nowMs)
         local latestCaught = findLatestCaughtForUnit(targetUnitId)
         local canReuseExisting = not wasAliveBefore and not isNewTarget and Tracker.last_target_health ~= nil
         local deathTimeMs = getMarkerDeathTimeMs(nowMs, signedTimerMs)
+        local caughtFishName = getTrackedFishDisplayName(trackedFishName, fishMaxHealth)
         if isNewTarget or wasAliveBefore or Tracker.last_target_health == nil then
-            latestCaught = rememberCaughtTarget(targetUnitId, nowMs, trackedFishName, canReuseExisting, deathTimeMs)
+            latestCaught = rememberCaughtTarget(targetUnitId, nowMs, caughtFishName, canReuseExisting, deathTimeMs)
         end
         for markerIndex = 1, Constants.MARKER_COUNT do
             local marker = ensureMarker(markerIndex)
@@ -582,6 +610,7 @@ local function buildTargetState(nowMs)
         end
         Tracker.last_target_unit_id = targetUnitId
         Tracker.last_target_health = 0
+        Tracker.last_target_max_health = fishMaxHealth
         targetState.visible = false
         targetState.icon_path = nil
         targetState.icon_placeholder_text = ""
@@ -657,6 +686,7 @@ local function buildTargetState(nowMs)
 
     Tracker.last_target_unit_id = targetUnitId
     Tracker.last_target_health = fishHealth
+    Tracker.last_target_max_health = fishMaxHealth
     return targetState
 end
 
@@ -835,6 +865,7 @@ function Tracker.Reset()
     Tracker.hotkey_cache = {}
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
+    Tracker.last_target_max_health = nil
     Tracker.last_action_buff_id = nil
     Tracker.last_action_time_left_ms = nil
     Tracker.last_action_stagnant_since_ms = nil

@@ -226,6 +226,32 @@ function Shared.RecordFishingCatch(fishName, nowMs)
     return true
 end
 
+function Shared.GetFishSizeLabel(maxHealth)
+    local health = tonumber(maxHealth)
+    if health == nil then
+        return ""
+    end
+    if health < Constants.FRY_MAX_HP then
+        return "Fry"
+    end
+    if health > Constants.GARGANTUAN_MIN_HP then
+        return "Gargantuan"
+    end
+    return ""
+end
+
+function Shared.FormatFishCatchName(fishName, maxHealth)
+    local baseName = tostring(fishName or "")
+    if baseName == "" then
+        baseName = "Unknown Fish"
+    end
+    local sizeLabel = Shared.GetFishSizeLabel(maxHealth)
+    if sizeLabel == "" then
+        return baseName
+    end
+    return string.format("%s %s", sizeLabel, baseName)
+end
+
 function Shared.FormatSeconds(seconds, decimals)
     local value = tonumber(seconds) or 0
     if value < 0 then
