@@ -5,6 +5,29 @@ local Shared = {
     settings = nil
 }
 
+local function readTableFile(path)
+    if api.File == nil or api.File.Read == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.File:Read(path)
+    end)
+    if ok and type(value) == "table" then
+        return value
+    end
+    return nil
+end
+
+local function writeTableFile(path, value)
+    if api.File == nil or api.File.Write == nil or type(value) ~= "table" then
+        return false
+    end
+    local ok = pcall(function()
+        api.File:Write(path, value)
+    end)
+    return ok
+end
+
 local function isEmptyTable(value)
     if type(value) ~= "table" then
         return false
@@ -100,7 +123,10 @@ local function buildSessionLabel(id)
 end
 
 function Shared.LoadSettings()
-    local settings = api.GetSettings(Constants.ADDON_ID) or {}
+    local settings = readTableFile(Constants.SETTINGS_FILE_PATH)
+    if type(settings) ~= "table" then
+        settings = api.GetSettings(Constants.ADDON_ID) or {}
+    end
     local changed = pruneUnknown(settings, Constants.DEFAULT_SETTINGS)
     if copyDefaults(settings, Constants.DEFAULT_SETTINGS) then
         changed = true
@@ -108,7 +134,7 @@ function Shared.LoadSettings()
     ensureSessionLog(settings)
     Shared.settings = settings
     if changed then
-        api.SaveSettings()
+        Shared.SaveSettings()
     end
     return Shared.settings
 end
@@ -121,7 +147,11 @@ function Shared.EnsureSettings()
 end
 
 function Shared.SaveSettings()
-    api.SaveSettings()
+    local settings = Shared.EnsureSettings()
+    writeTableFile(Constants.SETTINGS_FILE_PATH, settings)
+    if api.SaveSettings ~= nil then
+        api.SaveSettings()
+    end
 end
 
 function Shared.ToggleSetting(key)

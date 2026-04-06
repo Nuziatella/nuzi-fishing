@@ -294,6 +294,11 @@ local function getSessionPosition()
     return tonumber(settings.session_x) or 30, tonumber(settings.session_y) or 260
 end
 
+local function getSettingsWindowPosition()
+    local settings = Shared.EnsureSettings()
+    return tonumber(settings.settings_window_x) or 320, tonumber(settings.settings_window_y) or 180
+end
+
 local function applySessionPosition()
     local x, y = getSessionPosition()
     if Ui.session_toggle_window ~= nil then
@@ -302,6 +307,14 @@ local function applySessionPosition()
     if Ui.session_window ~= nil then
         safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
     end
+end
+
+local function applySettingsWindowPosition()
+    if Ui.settings_window == nil then
+        return
+    end
+    local x, y = getSettingsWindowPosition()
+    safeAnchor(Ui.settings_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
 end
 
 local function enableTargetHudDrag(canvas)
@@ -478,6 +491,42 @@ local function attachSessionToggleDrag(widget)
             end
         end
     end)
+end
+
+local function enableSettingsWindowDrag(window)
+    if window == nil then
+        return
+    end
+    if window.RegisterForDrag ~= nil then
+        window:RegisterForDrag("LeftButton")
+    end
+    if window.EnableDrag ~= nil then
+        window:EnableDrag(true)
+    end
+    if window.SetHandler ~= nil then
+        window:SetHandler("OnDragStart", function(self)
+            if self.StartMoving ~= nil then
+                self:StartMoving()
+            end
+        end)
+        window:SetHandler("OnDragStop", function(self)
+            if self.StopMovingOrSizing ~= nil then
+                self:StopMovingOrSizing()
+            end
+            if self.GetOffset ~= nil then
+                local ok, x, y = pcall(function()
+                    return self:GetOffset()
+                end)
+                if ok then
+                    local settings = Shared.EnsureSettings()
+                    settings.settings_window_x = tonumber(x) or settings.settings_window_x
+                    settings.settings_window_y = tonumber(y) or settings.settings_window_y
+                    Shared.SaveSettings()
+                    applySettingsWindowPosition()
+                end
+            end
+        end)
+    end
 end
 
 local function applyCommonWindowBehavior(window)
@@ -957,15 +1006,16 @@ local function createSettingsWindow()
     if window == nil then
         return
     end
-    safeAddAnchor(window, "CENTER", "UIParent", 0, 0)
     applyCommonWindowBehavior(window)
     safeSetVisible(window, false)
+    Ui.settings_window = window
+    applySettingsWindowPosition()
+    enableSettingsWindowDrag(window)
 
     for index, row in ipairs(SETTINGS_ROWS) do
         createSettingsRow(window, index, row.label, row.key)
     end
 
-    Ui.settings_window = window
     Ui.RefreshSettings()
 end
 

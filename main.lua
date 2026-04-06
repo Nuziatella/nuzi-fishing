@@ -25,6 +25,8 @@ local addon = {
 }
 
 local updateElapsedMs = 0
+local TARGETED_UPDATE_INTERVAL_MS = 100
+local IDLE_UPDATE_INTERVAL_MS = 250
 
 local function modulesReady()
     return Constants ~= nil and Shared ~= nil and Tracker ~= nil and Ui ~= nil
@@ -39,6 +41,82 @@ local function normalizeDeltaMs(dt)
         value = value * 1000
     end
     return value
+end
+
+local function hasCurrentTarget()
+    if api.Unit == nil or api.Unit.GetUnitId == nil then
+        return false
+    end
+
+    local ok, targetId = pcall(function()
+        return api.Unit:GetUnitId("target")
+    end)
+    return ok and targetId ~= nil
+end
+
+local function shouldUseFastUpdate(state)
+    if type(state) ~= "table" then
+        return false
+    end
+
+    local target = type(state.target) == "table" and state.target or nil
+    if target == nil then
+        return false
+    end
+
+    return target.visible
+        or target.strength_visible
+        or (type(target.icon_path) == "string" and target.icon_path ~= "")
+        or (type(target.status_text) == "string" and target.status_text ~= "")
+        or (type(target.coach_text) == "string" and target.coach_text ~= "")
+        or (type(target.coach_hint) == "string" and target.coach_hint ~= "")
+        or (type(target.timer_text) == "string" and target.timer_text ~= "")
+end
+
+local function shouldUseTargetedUpdate(state)
+    if hasCurrentTarget() then
+        return true
+    end
+    if type(state) ~= "table" then
+        return false
+    end
+
+    local markers = type(state.markers) == "table" and state.markers or nil
+    if markers ~= nil and #markers > 0 then
+        return true
+    end
+
+    local catches = type(state.catches) == "table" and state.catches or nil
+    if catches ~= nil and #catches > 0 then
+        return true
+    end
+
+    local boat = type(state.boat) == "table" and state.boat or nil
+    if boat ~= nil and boat.visible then
+        return true
+    end
+
+    local session = type(state.session) == "table" and state.session or nil
+    if session ~= nil and session.has_active then
+        return true
+    end
+
+    return false
+end
+
+local function getUpdateIntervalMs()
+    local state = nil
+    if Tracker ~= nil and Tracker.GetUiState ~= nil then
+        state = Tracker.GetUiState()
+    end
+
+    if shouldUseFastUpdate(state) then
+        return Constants.UPDATE_INTERVAL_MS
+    end
+    if shouldUseTargetedUpdate(state) then
+        return TARGETED_UPDATE_INTERVAL_MS
+    end
+    return IDLE_UPDATE_INTERVAL_MS
 end
 
 local function renderNow()
@@ -56,9 +134,11 @@ local function onUpdate(dt)
     end
 
     updateElapsedMs = updateElapsedMs + normalizeDeltaMs(dt)
-    if updateElapsedMs < Constants.UPDATE_INTERVAL_MS then
+    local intervalMs = getUpdateIntervalMs()
+    if updateElapsedMs < intervalMs then
         return
     end
+    local elapsedMs = updateElapsedMs
     updateElapsedMs = 0
 
     local settings = Shared.EnsureSettings()
@@ -68,7 +148,7 @@ local function onUpdate(dt)
     end
 
     local ok, err = pcall(function()
-        Ui.Render(Tracker.Update(Constants.UPDATE_INTERVAL_MS))
+        Ui.Render(Tracker.Update(elapsedMs))
     end)
     if not ok then
         if api.Log ~= nil and api.Log.Err ~= nil then

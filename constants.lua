@@ -6,6 +6,7 @@ Constants.ADDON_AUTHOR = "Nuzi"
 Constants.ADDON_VERSION = "1.4.3"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
+Constants.SETTINGS_FILE_PATH = "nuzi-fishing/settings.txt"
 
 Constants.MARKER_COUNT = 9
 Constants.AUTO_CATCH_COUNT = 6
@@ -100,6 +101,8 @@ Constants.DEFAULT_SETTINGS = {
     target_hud_y = 360,
     session_x = 30,
     session_y = 260,
+    settings_window_x = 320,
+    settings_window_y = 180,
     session_log = {
         active = false,
         current = {},
