@@ -94,6 +94,16 @@ local function ensureSessionLog(settings)
     return log
 end
 
+local function normalizeHudMode(settings)
+    local mode = string.lower(tostring(settings.hud_mode or "full"))
+    if mode ~= "compact" then
+        mode = "full"
+    end
+    local changed = settings.hud_mode ~= mode
+    settings.hud_mode = mode
+    return changed
+end
+
 local function getUiNowMs()
     if api.Time ~= nil and api.Time.GetUiMsec ~= nil then
         local ok, value = pcall(function()
@@ -136,6 +146,9 @@ function Shared.LoadSettings()
     end
     local changed = pruneUnknown(settings, Constants.DEFAULT_SETTINGS)
     if copyDefaults(settings, Constants.DEFAULT_SETTINGS) then
+        changed = true
+    end
+    if normalizeHudMode(settings) then
         changed = true
     end
     ensureSessionLog(settings)

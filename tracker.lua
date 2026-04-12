@@ -12,6 +12,10 @@ local Tracker = {
     icon_cache = {},
     hotkey_cache = {},
     ui_state = nil,
+    player_unit_id = nil,
+    player_name = nil,
+    target_seen_unit_id = nil,
+    target_seen_since_ms = nil,
     last_target_unit_id = nil,
     last_target_health = nil,
     last_target_max_health = nil,
@@ -300,27 +304,23 @@ end
 local function getTrackedFishName(unitInfo)
     local name = nil
     if type(unitInfo) == "table" then
-        name = unitInfo.name
+        name = unitInfo.name or unitInfo.unitName
     else
         name = unitInfo
     end
     if type(name) ~= "string" or name == "" then
         return nil
     end
-    if Constants.FISH_NAMES[name] == true then
-        return name
-    end
+
     local lowerName = string.lower(name)
-    local bestMatch = nil
-    for fishName in pairs(Constants.FISH_NAMES) do
-        local lowerFishName = string.lower(tostring(fishName))
-        if string.find(lowerName, lowerFishName, 1, true) ~= nil then
-            if bestMatch == nil or string.len(fishName) > string.len(bestMatch) then
-                bestMatch = fishName
-            end
+    for keyword in pairs(Constants.TRACKED_FISH_KEYWORDS or {}) do
+        local needle = tostring(keyword or "")
+        if needle ~= "" and string.find(lowerName, needle, 1, true) ~= nil then
+            return name
         end
     end
-    return bestMatch
+
+    return nil
 end
 
 local function isCharacterLikeUnit(unitInfo)
@@ -358,13 +358,22 @@ end
 local function getPlayerName()
     local playerId = safeGetUnitId("player")
     if playerId == nil then
+        Tracker.player_unit_id = nil
+        Tracker.player_name = nil
         return nil
+    end
+    if Tracker.player_unit_id == playerId and Tracker.player_name ~= nil then
+        return Tracker.player_name
     end
     local playerInfo = safeGetUnitInfoById(playerId)
     if playerInfo == nil then
+        Tracker.player_unit_id = playerId
+        Tracker.player_name = nil
         return nil
     end
-    return type(playerInfo.name) == "string" and playerInfo.name or nil
+    Tracker.player_unit_id = playerId
+    Tracker.player_name = type(playerInfo.name) == "string" and playerInfo.name or nil
+    return Tracker.player_name
 end
 
 local function isOwnedByPlayer(unitInfo, playerName)
@@ -391,6 +400,17 @@ local function getMarkerDeathTimeMs(nowMs, remainingMs)
         remaining = Constants.MARKER_TIMER_MS
     end
     return nowMs - (Constants.MARKER_TIMER_MS - remaining)
+end
+
+local function clearTargetTracking()
+    Tracker.target_seen_unit_id = nil
+    Tracker.target_seen_since_ms = nil
+    Tracker.last_action_buff_id = nil
+    Tracker.last_action_time_left_ms = nil
+    Tracker.last_action_stagnant_since_ms = nil
+    Tracker.last_target_unit_id = nil
+    Tracker.last_target_health = nil
+    Tracker.last_target_max_health = nil
 end
 
 local function getActionBuffState(actionBuff, targetUnitId, nowMs)
@@ -543,23 +563,13 @@ local function buildTargetState(nowMs)
 
     local targetUnitId = safeGetUnitId("target")
     if targetUnitId == nil then
-        Tracker.last_action_buff_id = nil
-        Tracker.last_action_time_left_ms = nil
-        Tracker.last_action_stagnant_since_ms = nil
-        Tracker.last_target_unit_id = nil
-        Tracker.last_target_health = nil
-        Tracker.last_target_max_health = nil
+        clearTargetTracking()
         return targetState
     end
 
     local targetInfo = getTargetInfo(targetUnitId)
     if targetInfo == nil then
-        Tracker.last_action_buff_id = nil
-        Tracker.last_action_time_left_ms = nil
-        Tracker.last_action_stagnant_since_ms = nil
-        Tracker.last_target_unit_id = nil
-        Tracker.last_target_health = nil
-        Tracker.last_target_max_health = nil
+        clearTargetTracking()
         return targetState
     end
 
@@ -570,6 +580,18 @@ local function buildTargetState(nowMs)
         Tracker.last_target_health = nil
         Tracker.last_target_max_health = nil
     end
+
+    local trackedFishName = getTrackedFishName(targetInfo)
+    if trackedFishName == nil then
+        clearTargetTracking()
+        return targetState
+    end
+    if Tracker.target_seen_unit_id ~= targetUnitId then
+        Tracker.target_seen_unit_id = targetUnitId
+        Tracker.target_seen_since_ms = nowMs
+    end
+
+    local playerName = getPlayerName()
 
     local buffCount = safeUnitBuffCount("target")
     local actionBuff = nil
@@ -589,26 +611,14 @@ local function buildTargetState(nowMs)
         end
     end
 
-    local playerName = getPlayerName()
     if ownersMarkBuff ~= nil and isOwnedByPlayer(targetInfo, playerName) then
         Tracker.boat_expiration_ms = nowMs + (tonumber(ownersMarkBuff.timeLeft) or 0)
-    end
-
-    if not isTrackedFish(targetInfo) then
-        Tracker.last_action_buff_id = nil
-        Tracker.last_action_time_left_ms = nil
-        Tracker.last_action_stagnant_since_ms = nil
-        Tracker.last_target_unit_id = nil
-        Tracker.last_target_health = nil
-        Tracker.last_target_max_health = nil
-        return targetState
     end
 
     local x, y = getUnitScreenPosition("target")
     targetState.visible = settings.show_target
     targetState.x = x
     targetState.y = y
-    local trackedFishName = getTrackedFishName(targetInfo) or tostring(targetInfo.name or "")
     local fishMaxHealth = safeUnitMaxHealth("target")
     if fishMaxHealth == nil or fishMaxHealth <= 0 then
         fishMaxHealth = tonumber(Tracker.last_target_max_health)
@@ -723,6 +733,12 @@ local function buildTargetState(nowMs)
         if settings.show_timers then
             targetState.strength_timer_text = Shared.FormatSeconds((tonumber(strengthBuff.timeLeft) or 0) / 1000, 1)
         end
+    end
+
+    local stableSinceMs = tonumber(Tracker.target_seen_since_ms) or nowMs
+    if (nowMs - stableSinceMs) < Constants.TARGET_STABILITY_MS then
+        targetState.visible = false
+        targetState.strength_visible = false
     end
 
     Tracker.last_target_unit_id = targetUnitId
@@ -904,6 +920,10 @@ function Tracker.Reset()
     Tracker.boat_expiration_ms = nil
     Tracker.marker_elapsed_ms = Constants.MARKER_SCAN_MS
     Tracker.hotkey_cache = {}
+    Tracker.player_unit_id = nil
+    Tracker.player_name = nil
+    Tracker.target_seen_unit_id = nil
+    Tracker.target_seen_since_ms = nil
     Tracker.last_target_unit_id = nil
     Tracker.last_target_health = nil
     Tracker.last_target_max_health = nil

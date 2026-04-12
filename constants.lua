@@ -15,8 +15,10 @@ Constants.MARKER_TIMER_MS = 150000
 Constants.MARKER_SCAN_MS = 250
 Constants.UPDATE_INTERVAL_MS = 16
 Constants.SESSION_IDLE_TIMEOUT_MS = 180000
+Constants.TARGET_STABILITY_MS = 150
 Constants.FRY_MAX_HP = 20000
 Constants.GARGANTUAN_MIN_HP = 32000
+Constants.HUD_MODE_OPTIONS = { "full", "compact" }
 
 Constants.ACTION_BUFF_IDS = {
     [5264] = true,
@@ -95,9 +97,18 @@ Constants.FISH_NAMES = {
     ["Tuna"] = true
 }
 
+Constants.TRACKED_FISH_KEYWORDS = {
+    marlin = true,
+    sailfish = true,
+    sturgeon = true,
+    sunfish = true,
+    tuna = true
+}
+
 Constants.DEFAULT_SETTINGS = {
     enabled = true,
     helper_scale = 1,
+    hud_mode = "full",
     target_hud_x = 760,
     target_hud_y = 360,
     session_x = 30,

@@ -22,6 +22,7 @@ local Ui = {
     boat_row = nil,
     session_toggle_window = nil,
     session_toggle_button = nil,
+    session_mode_button = nil,
     session_window = nil,
     session_title = nil,
     session_labels = {},
@@ -34,11 +35,13 @@ local Ui = {
 }
 
 local HELPER_SCALE_OPTIONS = { 0.8, 1.0, 1.2, 1.4, 1.6 }
+local SETTINGS_ROW_HEIGHT = 26
 
 local SETTINGS_ROWS = {
     { label = "Addon", key = "enabled" },
     { label = "Target HUD", key = "show_target" },
     { label = "HUD Size", key = "helper_scale", kind = "cycle" },
+    { label = "HUD Mode", key = "hud_mode", kind = "cycle" },
     { label = "Fish Name", key = "show_fish_name" },
     { label = "Status Text", key = "show_status_text" },
     { label = "Coach", key = "show_coach" },
@@ -86,8 +89,15 @@ local function safeSetExtent(widget, width, height)
     if widget == nil or widget.SetExtent == nil then
         return
     end
+    local nextWidth = roundNumber(width)
+    local nextHeight = roundNumber(height)
+    if widget.__nuzi_extent_w == nextWidth and widget.__nuzi_extent_h == nextHeight then
+        return
+    end
+    widget.__nuzi_extent_w = nextWidth
+    widget.__nuzi_extent_h = nextHeight
     pcall(function()
-        widget:SetExtent(roundNumber(width), roundNumber(height))
+        widget:SetExtent(nextWidth, nextHeight)
     end)
 end
 
@@ -112,16 +122,38 @@ local function getHelperScale()
     return scale
 end
 
-local function scaledFontSize(baseSize)
-    local scaled = scaleValue(baseSize, getHelperScale())
+local function getHudMode()
+    local settings = Shared.EnsureSettings()
+    local mode = string.lower(tostring(settings.hud_mode or "full"))
+    if mode ~= "compact" then
+        mode = "full"
+    end
+    settings.hud_mode = mode
+    return mode
+end
+
+local function scaledFontSizeForScale(baseSize, scale)
+    local scaled = scaleValue(baseSize, scale)
     if scaled < 10 then
         scaled = 10
     end
     return scaled
 end
 
+local function scaledFontSize(baseSize)
+    return scaledFontSizeForScale(baseSize, getHelperScale())
+end
+
 local function getHelperScaleLabel()
     return string.format("%d%%", roundNumber(getHelperScale() * 100))
+end
+
+local function getHudModeLabel()
+    return getHudMode() == "compact" and "Compact" or "Full"
+end
+
+local function getHudModeButtonLabel()
+    return getHudMode() == "compact" and "Mini" or "Full"
 end
 
 local function safeSetText(widget, text)
@@ -568,47 +600,84 @@ end
 
 local function applyHelperScale()
     local scale = getHelperScale()
+    local compactHud = getHudMode() == "compact"
+    local font13 = scaledFontSizeForScale(13, scale)
+    local font14 = scaledFontSizeForScale(14, scale)
+    local font16 = scaledFontSizeForScale(16, scale)
+    local canvasWidth = compactHud and 300 or 420
+    local canvasHeight = compactHud and 92 or 132
+    local iconX = compactHud and 12 or 12
+    local iconY = compactHud and 24 or 34
+    local iconSize = compactHud and 40 or 44
+    local iconTextX = compactHud and 6 or 6
+    local iconTextY = compactHud and 44 or 52
+    local iconTextWidth = compactHud and 52 or 60
+    local fishNameX = compactHud and 62 or 12
+    local fishNameY = compactHud and 8 or 6
+    local fishNameWidth = compactHud and 170 or 260
+    local statusX = compactHud and 62 or 70
+    local statusY = compactHud and 54 or 34
+    local statusWidth = compactHud and 160 or 220
+    local coachX = compactHud and 62 or 70
+    local coachY = compactHud and 30 or 52
+    local coachWidth = compactHud and 150 or 240
+    local coachHeight = compactHud and 24 or 28
+    local hintX = compactHud and 62 or 70
+    local hintY = compactHud and 54 or 82
+    local hintWidth = compactHud and 170 or 290
+    local keybindX = compactHud and 62 or 70
+    local keybindY = compactHud and 72 or 102
+    local keybindWidth = compactHud and 170 or 210
+    local timerX = compactHud and 224 or -4
+    local timerY = compactHud and 34 or 94
+    local timerWidth = compactHud and 60 or 72
+    local strengthIconX = compactHud and 248 or 360
+    local strengthIconY = compactHud and 24 or 34
+    local strengthIconSize = compactHud and 36 or 44
+    local strengthTimerX = compactHud and 228 or 346
+    local strengthTimerY = compactHud and 60 or 102
+    local strengthTimerWidth = compactHud and 60 or 70
 
-    safeSetExtent(Ui.target_canvas, 420 * scale, 132 * scale)
-    safeAnchor(Ui.target_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(12, scale), scaleValue(34, scale))
-    safeSetExtent(Ui.target_icon, 44 * scale, 44 * scale)
+    safeSetExtent(Ui.target_canvas, canvasWidth * scale, canvasHeight * scale)
+    safeAnchor(Ui.target_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(iconX, scale), scaleValue(iconY, scale))
+    safeSetExtent(Ui.target_icon, iconSize * scale, iconSize * scale)
     safeAnchor(Ui.target_icon_mask, "TOPLEFT", Ui.target_icon, "TOPLEFT", scaleValue(1, scale), scaleValue(1, scale))
     safeAnchor(Ui.target_icon_mask, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", scaleValue(-1, scale), scaleValue(-1, scale))
     safeAnchor(Ui.target_glow, "TOPLEFT", Ui.target_icon, "TOPLEFT", scaleValue(-4, scale), scaleValue(-4, scale))
     safeAnchor(Ui.target_glow, "BOTTOMRIGHT", Ui.target_icon, "BOTTOMRIGHT", scaleValue(4, scale), scaleValue(4, scale))
 
-    safeAnchor(Ui.target_icon_text, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(6, scale), scaleValue(52, scale))
-    safeSetExtent(Ui.target_icon_text, 60 * scale, 18 * scale)
-    setLabelStyle(Ui.target_icon_text, scaledFontSize(16), nil)
+    safeAnchor(Ui.target_icon_text, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(iconTextX, scale), scaleValue(iconTextY, scale))
+    safeSetExtent(Ui.target_icon_text, iconTextWidth * scale, 18 * scale)
+    setLabelStyle(Ui.target_icon_text, font16, nil)
 
-    safeAnchor(Ui.target_fish_name, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(12, scale), scaleValue(6, scale))
-    safeSetExtent(Ui.target_fish_name, 260 * scale, 20 * scale)
-    setLabelStyle(Ui.target_fish_name, scaledFontSize(16), nil)
+    safeAnchor(Ui.target_fish_name, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(fishNameX, scale), scaleValue(fishNameY, scale))
+    safeSetExtent(Ui.target_fish_name, fishNameWidth * scale, 20 * scale)
+    setLabelStyle(Ui.target_fish_name, font16, nil)
 
-    safeAnchor(Ui.target_status, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(34, scale))
-    safeSetExtent(Ui.target_status, 220 * scale, 18 * scale)
-    setLabelStyle(Ui.target_status, scaledFontSize(13), nil)
+    safeAnchor(Ui.target_status, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(statusX, scale), scaleValue(statusY, scale))
+    safeSetExtent(Ui.target_status, statusWidth * scale, 18 * scale)
+    setLabelStyle(Ui.target_status, font13, nil)
 
-    safeAnchor(Ui.target_coach, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(52, scale))
-    safeSetExtent(Ui.target_coach, 240 * scale, 28 * scale)
+    safeAnchor(Ui.target_coach, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(coachX, scale), scaleValue(coachY, scale))
+    safeSetExtent(Ui.target_coach, coachWidth * scale, coachHeight * scale)
 
-    safeAnchor(Ui.target_hint, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(82, scale))
-    safeSetExtent(Ui.target_hint, 290 * scale, 18 * scale)
-    setLabelStyle(Ui.target_hint, scaledFontSize(13), nil)
+    safeAnchor(Ui.target_hint, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(hintX, scale), scaleValue(hintY, scale))
+    safeSetExtent(Ui.target_hint, hintWidth * scale, 18 * scale)
+    setLabelStyle(Ui.target_hint, font13, nil)
 
-    safeAnchor(Ui.target_keybind, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(70, scale), scaleValue(102, scale))
-    safeSetExtent(Ui.target_keybind, 210 * scale, 18 * scale)
-    setLabelStyle(Ui.target_keybind, scaledFontSize(13), nil)
+    safeAnchor(Ui.target_keybind, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(keybindX, scale), scaleValue(keybindY, scale))
+    safeSetExtent(Ui.target_keybind, keybindWidth * scale, 18 * scale)
+    setLabelStyle(Ui.target_keybind, font13, nil)
 
-    safeAnchor(Ui.target_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(-4, scale), scaleValue(94, scale))
-    safeSetExtent(Ui.target_timer, 72 * scale, 18 * scale)
+    safeAnchor(Ui.target_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(timerX, scale), scaleValue(timerY, scale))
+    safeSetExtent(Ui.target_timer, timerWidth * scale, 18 * scale)
 
-    safeAnchor(Ui.strength_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(360, scale), scaleValue(34, scale))
-    safeSetExtent(Ui.strength_icon, 44 * scale, 44 * scale)
+    safeAnchor(Ui.strength_icon, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(strengthIconX, scale), scaleValue(strengthIconY, scale))
+    safeSetExtent(Ui.strength_icon, strengthIconSize * scale, strengthIconSize * scale)
 
-    safeAnchor(Ui.strength_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(346, scale), scaleValue(102, scale))
-    safeSetExtent(Ui.strength_timer, 70 * scale, 18 * scale)
-    setLabelStyle(Ui.strength_timer, scaledFontSize(16), nil)
+    safeAnchor(Ui.strength_timer, "TOPLEFT", Ui.target_canvas, "TOPLEFT", scaleValue(strengthTimerX, scale), scaleValue(strengthTimerY, scale))
+    safeSetExtent(Ui.strength_timer, strengthTimerWidth * scale, 18 * scale)
+    setLabelStyle(Ui.strength_timer, font16, nil)
 
     for _, row in ipairs(Ui.marker_rows) do
         safeSetExtent(row.canvas, 56 * scale, 64 * scale)
@@ -616,7 +685,7 @@ local function applyHelperScale()
         safeSetExtent(row.icon, 44 * scale, 44 * scale)
         safeAnchor(row.marker_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
         safeSetExtent(row.marker_label, 72 * scale, 18 * scale)
-        setLabelStyle(row.marker_label, scaledFontSize(14), nil)
+        setLabelStyle(row.marker_label, font14, nil)
         safeAnchor(row.time_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
         safeSetExtent(row.time_label, 72 * scale, 20 * scale)
     end
@@ -627,7 +696,7 @@ local function applyHelperScale()
         safeSetExtent(row.icon, 44 * scale, 44 * scale)
         safeAnchor(row.marker_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
         safeSetExtent(row.marker_label, 72 * scale, 18 * scale)
-        setLabelStyle(row.marker_label, scaledFontSize(14), nil)
+        setLabelStyle(row.marker_label, font14, nil)
         safeAnchor(row.time_label, "TOPLEFT", row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
         safeSetExtent(row.time_label, 72 * scale, 20 * scale)
     end
@@ -638,7 +707,7 @@ local function applyHelperScale()
         safeSetExtent(Ui.boat_row.icon, 44 * scale, 44 * scale)
         safeAnchor(Ui.boat_row.marker_label, "TOPLEFT", Ui.boat_row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(-20, scale))
         safeSetExtent(Ui.boat_row.marker_label, 72 * scale, 18 * scale)
-        setLabelStyle(Ui.boat_row.marker_label, scaledFontSize(14), nil)
+        setLabelStyle(Ui.boat_row.marker_label, font14, nil)
         safeAnchor(Ui.boat_row.time_label, "TOPLEFT", Ui.boat_row.canvas, "TOPLEFT", scaleValue(-8, scale), scaleValue(46, scale))
         safeSetExtent(Ui.boat_row.time_label, 72 * scale, 20 * scale)
     end
@@ -740,6 +809,15 @@ local function toggleSetting(settingKey)
     notifySettingsChanged()
 end
 
+local function cycleHudMode()
+    local settings = Shared.EnsureSettings()
+    local current = getHudMode()
+    settings.hud_mode = current == "compact" and "full" or "compact"
+    Shared.SaveSettings()
+    applyHelperScale()
+    notifySettingsChanged()
+end
+
 local function cycleHelperScale()
     local settings = Shared.EnsureSettings()
     local current = normalizeHelperScale(settings.helper_scale)
@@ -786,7 +864,7 @@ local function deleteFishingSession(sessionId)
 end
 
 local function createSettingsRow(parent, rowIndex, title, settingKey)
-    local top = 56 + ((rowIndex - 1) * 30)
+    local top = 56 + ((rowIndex - 1) * SETTINGS_ROW_HEIGHT)
     local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 160, 24, 14, getAlignLeft())
     safeSetText(label, title)
     local button = createButton(
@@ -800,6 +878,8 @@ local function createSettingsRow(parent, rowIndex, title, settingKey)
         function()
             if settingKey == "helper_scale" then
                 cycleHelperScale()
+            elseif settingKey == "hud_mode" then
+                cycleHudMode()
             else
                 toggleSetting(settingKey)
             end
@@ -933,7 +1013,9 @@ local function createSessionWindow()
     local bg = safeCreateColorDrawable(window, 0.05, 0.05, 0.05, 0.78, "background")
     safeAddAnchor(bg, "TOPLEFT", window, "TOPLEFT", -10, -8)
     safeAddAnchor(bg, "BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
-    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 220, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 150, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_mode_button = createButton("NuziFishingHudModeButton", window, getHudModeButtonLabel(), 156, 0, 50, 24, cycleHudMode)
+    safeSetText(Ui.session_mode_button, getHudModeButtonLabel())
     Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 234, 0, 54, 24, startFishingSession)
     Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 294, 0, 54, 24, endFishingSession)
     Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 30, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
@@ -1001,7 +1083,7 @@ local function createSettingsWindow()
         return
     end
 
-    local height = 72 + (#SETTINGS_ROWS * 30)
+    local height = 72 + (#SETTINGS_ROWS * SETTINGS_ROW_HEIGHT)
     local window = safeCreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, height)
     if window == nil then
         return
@@ -1036,6 +1118,8 @@ function Ui.RefreshSettings()
         if button ~= nil and button.SetText ~= nil then
             if key == "helper_scale" then
                 button:SetText(getHelperScaleLabel())
+            elseif key == "hud_mode" then
+                button:SetText(getHudModeLabel())
             else
                 button:SetText(settings[key] and "On" or "Off")
             end
@@ -1082,11 +1166,23 @@ function Ui.Render(uiState)
 
     local target = uiState.target or {}
     local helperScale = getHelperScale()
+    local compactHud = getHudMode() == "compact"
+    local font16 = scaledFontSizeForScale(16, helperScale)
+    local font18 = scaledFontSizeForScale(18, helperScale)
+    local coachFontNormal = scaledFontSizeForScale(22, helperScale)
+    local coachFontLarge = scaledFontSizeForScale(24, helperScale)
     safeSetVisible(Ui.session_toggle_window, settings.show_session)
     safeSetText(Ui.session_toggle_button, "NF")
+    safeSetText(Ui.session_mode_button, getHudModeButtonLabel())
     local hasPlaceholder = type(target.icon_placeholder_text) == "string" and target.icon_placeholder_text ~= ""
     local hasIcon = type(target.icon_path) == "string" and target.icon_path ~= ""
     local targetVisible = target.visible and (hasIcon or hasPlaceholder)
+    local showFishName = targetVisible and settings.show_fish_name and type(target.fish_name) == "string" and target.fish_name ~= ""
+    local showStatus = targetVisible and not compactHud and settings.show_status_text and type(target.status_text) == "string" and target.status_text ~= ""
+    local showCoach = targetVisible and settings.show_coach and type(target.coach_text) == "string" and target.coach_text ~= ""
+    local showHint = targetVisible and not compactHud and settings.show_coach_hint and type(target.coach_hint) == "string" and target.coach_hint ~= ""
+    local showKeybind = targetVisible and not compactHud and settings.show_keybind and type(target.keybind_text) == "string" and target.keybind_text ~= ""
+    local showTimer = targetVisible and settings.show_timers and type(target.timer_text) == "string" and target.timer_text ~= ""
     safeSetVisible(Ui.target_canvas, targetVisible)
     if targetVisible then
         if hasIcon then
@@ -1102,24 +1198,31 @@ function Ui.Render(uiState)
         safeSetText(Ui.target_hint, target.coach_hint or "")
         safeSetText(Ui.target_keybind, target.keybind_text or "")
         safeSetText(Ui.target_timer, target.timer_text or "")
+        safeSetVisible(Ui.target_fish_name, showFishName)
+        safeSetVisible(Ui.target_status, showStatus)
+        safeSetVisible(Ui.target_coach, showCoach)
+        safeSetVisible(Ui.target_hint, showHint)
+        safeSetVisible(Ui.target_keybind, showKeybind)
+        safeSetVisible(Ui.target_timer, showTimer)
         if target.emphasis == "big_reel_in" then
-            setLabelStyle(Ui.target_coach, scaledFontSize(24), { 1, 0.92, 0.3, 1 })
-            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
+            setLabelStyle(Ui.target_coach, coachFontLarge, { 1, 0.92, 0.3, 1 })
+            setLabelStyle(Ui.target_timer, font16, getTimerColor(target.timer_text or "", { 1, 0.82, 0.22, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 0.95, 0.75, 0.1, 0.28 })
             safeSetDrawableVisible(Ui.target_glow, true)
         elseif target.emphasis == "reel_in" then
-            setLabelStyle(Ui.target_coach, scaledFontSize(24), { 1, 0.58, 0.18, 1 })
-            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
+            setLabelStyle(Ui.target_coach, coachFontLarge, { 1, 0.58, 0.18, 1 })
+            setLabelStyle(Ui.target_timer, font16, getTimerColor(target.timer_text or "", { 1, 0.58, 0.18, 1 }))
             safeSetDrawableColor(Ui.target_glow, { 1, 0.45, 0.1, 0.24 })
             safeSetDrawableVisible(Ui.target_glow, true)
         else
-            setLabelStyle(Ui.target_coach, scaledFontSize(22), { 0.85, 0.9, 1, 1 })
-            setLabelStyle(Ui.target_timer, scaledFontSize(16), getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
+            setLabelStyle(Ui.target_coach, coachFontNormal, { 0.85, 0.9, 1, 1 })
+            setLabelStyle(Ui.target_timer, font16, getTimerColor(target.timer_text or "", { 0, 1, 0, 1 }))
             safeSetDrawableVisible(Ui.target_glow, false)
         end
 
         local showStrength = target.strength_visible and type(target.strength_icon_path) == "string" and target.strength_icon_path ~= ""
         safeSetVisible(Ui.strength_icon, showStrength)
+        safeSetVisible(Ui.strength_timer, showStrength and settings.show_timers and type(target.strength_timer_text) == "string" and target.strength_timer_text ~= "")
         if showStrength then
             safeSetIcon(Ui.strength_icon, target.strength_icon_path)
         end
@@ -1128,7 +1231,15 @@ function Ui.Render(uiState)
         safeSetVisible(Ui.target_icon, false)
         safeSetDrawableVisible(Ui.target_icon_mask, false)
         safeSetVisible(Ui.target_icon_text, false)
+        safeSetVisible(Ui.target_fish_name, false)
+        safeSetVisible(Ui.target_status, false)
+        safeSetVisible(Ui.target_coach, false)
+        safeSetVisible(Ui.target_hint, false)
+        safeSetVisible(Ui.target_keybind, false)
+        safeSetVisible(Ui.target_timer, false)
         safeSetDrawableVisible(Ui.target_glow, false)
+        safeSetVisible(Ui.strength_icon, false)
+        safeSetVisible(Ui.strength_timer, false)
     end
 
     local markers = uiState.markers or {}
@@ -1145,7 +1256,7 @@ function Ui.Render(uiState)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
             safeSetText(row.marker_label, tostring(data.index or index))
-            setLabelStyle(row.time_label, scaledFontSize(18), getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
+            setLabelStyle(row.time_label, font18, getTimerColor(data.timer_text or "", { 1, 0.5, 0, 1 }))
             safeSetVisible(row.canvas, true)
             activeCount = activeCount + 1
         elseif row ~= nil then
@@ -1164,7 +1275,7 @@ function Ui.Render(uiState)
             safeSetIcon(row.icon, data.icon_path)
             safeSetText(row.time_label, data.timer_text or "")
             safeSetText(row.marker_label, tostring(data.serial or index))
-            setLabelStyle(row.time_label, scaledFontSize(18), getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
+            setLabelStyle(row.time_label, font18, getTimerColor(data.timer_text or "", { 1, 0.3, 0.3, 1 }))
             safeSetVisible(row.canvas, true)
             catchCount = catchCount + 1
         elseif row ~= nil then
@@ -1179,7 +1290,7 @@ function Ui.Render(uiState)
             safeAnchor(Ui.boat_row.canvas, "TOP", "UIParent", "CENTER", offsetX, rowBaseY)
             safeSetIcon(Ui.boat_row.icon, boat.icon_path)
             safeSetText(Ui.boat_row.time_label, boat.timer_text or "")
-            setLabelStyle(Ui.boat_row.time_label, scaledFontSize(18), getTimerColor(boat.timer_text or "", { 0.3, 0.6, 1, 1 }))
+            setLabelStyle(Ui.boat_row.time_label, font18, getTimerColor(boat.timer_text or "", { 0.3, 0.6, 1, 1 }))
             safeSetVisible(Ui.boat_row.canvas, true)
         else
             safeSetVisible(Ui.boat_row.canvas, false)
@@ -1260,6 +1371,7 @@ function Ui.Unload()
     Ui.boat_row = nil
     Ui.session_toggle_window = nil
     Ui.session_toggle_button = nil
+    Ui.session_mode_button = nil
     Ui.session_window = nil
     Ui.session_title = nil
     Ui.session_labels = {}
