@@ -3,10 +3,11 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "1.4.3"
+Constants.ADDON_VERSION = "1.4.4"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.WARNING_TIME_SECONDS = 10
-Constants.SETTINGS_FILE_PATH = "nuzi-fishing/settings.txt"
+Constants.SETTINGS_FILE_PATH = "nuzi-fishing/.data/settings.txt"
+Constants.LEGACY_SETTINGS_FILE_PATH = "nuzi-fishing/settings.txt"
 
 Constants.MARKER_COUNT = 9
 Constants.AUTO_CATCH_COUNT = 6

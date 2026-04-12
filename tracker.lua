@@ -49,6 +49,19 @@ local function safeGetUnitInfoById(unitId)
     return nil
 end
 
+local function safeUnitInfo(unit)
+    if api.Unit == nil or api.Unit.UnitInfo == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return api.Unit:UnitInfo(unit)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
 local function safeUnitBuffCount(unit)
     if api.Unit == nil or api.Unit.UnitBuffCount == nil then
         return 0
@@ -310,8 +323,36 @@ local function getTrackedFishName(unitInfo)
     return bestMatch
 end
 
+local function isCharacterLikeUnit(unitInfo)
+    if type(unitInfo) ~= "table" then
+        return false
+    end
+    local unitType = string.lower(tostring(unitInfo.type or unitInfo.unitType or ""))
+    if unitType == "" then
+        return false
+    end
+    return unitType == "character" or unitType == "pc" or unitType == "player"
+end
+
 local function isTrackedFish(unitInfo)
+    if isCharacterLikeUnit(unitInfo) then
+        return false
+    end
     return getTrackedFishName(unitInfo) ~= nil
+end
+
+local function getTargetInfo(targetUnitId)
+    local unitInfo = safeUnitInfo("target")
+    if type(unitInfo) == "table" then
+        if isCharacterLikeUnit(unitInfo) then
+            return unitInfo
+        end
+        local unitName = tostring(unitInfo.name or unitInfo.unitName or "")
+        if unitName ~= "" then
+            return unitInfo
+        end
+    end
+    return safeGetUnitInfoById(targetUnitId)
 end
 
 local function getPlayerName()
@@ -511,7 +552,7 @@ local function buildTargetState(nowMs)
         return targetState
     end
 
-    local targetInfo = safeGetUnitInfoById(targetUnitId)
+    local targetInfo = getTargetInfo(targetUnitId)
     if targetInfo == nil then
         Tracker.last_action_buff_id = nil
         Tracker.last_action_time_left_ms = nil

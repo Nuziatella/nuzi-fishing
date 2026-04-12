@@ -124,6 +124,13 @@ end
 
 function Shared.LoadSettings()
     local settings = readTableFile(Constants.SETTINGS_FILE_PATH)
+    local migrated = false
+    if type(settings) ~= "table" then
+        settings = readTableFile(Constants.LEGACY_SETTINGS_FILE_PATH)
+        if type(settings) == "table" then
+            migrated = true
+        end
+    end
     if type(settings) ~= "table" then
         settings = api.GetSettings(Constants.ADDON_ID) or {}
     end
@@ -133,7 +140,7 @@ function Shared.LoadSettings()
     end
     ensureSessionLog(settings)
     Shared.settings = settings
-    if changed then
+    if changed or migrated then
         Shared.SaveSettings()
     end
     return Shared.settings
