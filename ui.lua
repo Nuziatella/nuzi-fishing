@@ -22,7 +22,9 @@ local Ui = {
     boat_row = nil,
     session_toggle_window = nil,
     session_toggle_button = nil,
+    session_toggle_icon = nil,
     session_mode_button = nil,
+    session_settings_button = nil,
     session_window = nil,
     session_title = nil,
     session_labels = {},
@@ -31,16 +33,21 @@ local Ui = {
     session_history_rows = {},
     settings_window = nil,
     settings_controls = {},
+    settings_sliders = {},
     on_settings_changed = nil
 }
 
 local HELPER_SCALE_OPTIONS = { 0.8, 1.0, 1.2, 1.4, 1.6 }
 local SETTINGS_ROW_HEIGHT = 26
+local applyHelperScale
+local applyCommonWindowBehavior
+local notifySettingsChanged
 
 local SETTINGS_ROWS = {
     { label = "Addon", key = "enabled" },
     { label = "Target HUD", key = "show_target" },
-    { label = "HUD Size", key = "helper_scale", kind = "cycle" },
+    { label = "HUD Size", key = "helper_scale", kind = "slider" },
+    { label = "Launcher", key = "session_button_size", kind = "slider" },
     { label = "HUD Mode", key = "hud_mode", kind = "cycle" },
     { label = "Fish Name", key = "show_fish_name" },
     { label = "Status Text", key = "show_status_text" },
@@ -148,12 +155,65 @@ local function getHelperScaleLabel()
     return string.format("%d%%", roundNumber(getHelperScale() * 100))
 end
 
+local function getSessionButtonSize()
+    local settings = Shared.EnsureSettings()
+    local size = tonumber(settings.session_button_size) or tonumber(Constants.DEFAULT_SETTINGS.session_button_size) or 44
+    if size < 32 then
+        size = 32
+    elseif size > 96 then
+        size = 96
+    end
+    settings.session_button_size = size
+    return roundNumber(size)
+end
+
+local function getSessionButtonSizeLabel()
+    return tostring(getSessionButtonSize())
+end
+
 local function getHudModeLabel()
     return getHudMode() == "compact" and "Compact" or "Full"
 end
 
 local function getHudModeButtonLabel()
     return getHudMode() == "compact" and "Mini" or "Full"
+end
+
+local function setHelperScale(value)
+    local settings = Shared.EnsureSettings()
+    local numeric = tonumber(value) or settings.helper_scale or 1
+    if numeric < HELPER_SCALE_OPTIONS[1] then
+        numeric = HELPER_SCALE_OPTIONS[1]
+    elseif numeric > HELPER_SCALE_OPTIONS[#HELPER_SCALE_OPTIONS] then
+        numeric = HELPER_SCALE_OPTIONS[#HELPER_SCALE_OPTIONS]
+    end
+    local snapped = normalizeHelperScale(math.floor((numeric * 10) + 0.5) / 10)
+    if settings.helper_scale == snapped then
+        return
+    end
+    settings.helper_scale = snapped
+    Shared.SaveSettings()
+    applyHelperScale()
+    notifySettingsChanged()
+end
+
+local function setSessionButtonSize(value)
+    local settings = Shared.EnsureSettings()
+    local numeric = roundNumber(value)
+    if numeric < 32 then
+        numeric = 32
+    elseif numeric > 96 then
+        numeric = 96
+    end
+    if settings.session_button_size == numeric then
+        return
+    end
+    settings.session_button_size = numeric
+    Shared.SaveSettings()
+    if Ui.ApplySessionToggleLayout ~= nil then
+        Ui.ApplySessionToggleLayout()
+    end
+    notifySettingsChanged()
 end
 
 local function safeSetText(widget, text)
@@ -229,6 +289,31 @@ local function safeSetDrawableColor(drawable, color)
     end
 end
 
+local function safeSetTexture(drawable, path)
+    if drawable == nil or drawable.SetTexture == nil or type(path) ~= "string" or path == "" then
+        return
+    end
+    if drawable.__nuzi_texture ~= path then
+        drawable.__nuzi_texture = path
+        pcall(function()
+            drawable:SetTexture(path)
+        end)
+    end
+end
+
+local function safeSetSliderValue(slider, value)
+    if slider == nil or slider.SetValue == nil then
+        return
+    end
+    local nextValue = tonumber(value) or 0
+    if slider.__nuzi_slider_value ~= nextValue then
+        slider.__nuzi_slider_value = nextValue
+        pcall(function()
+            slider:SetValue(nextValue, false)
+        end)
+    end
+end
+
 local function safeAnchor(widget, point, target, relativePoint, x, y)
     if widget == nil or widget.AddAnchor == nil then
         return
@@ -277,6 +362,7 @@ local function safeCreateEmptyWindow(id)
         return api.Interface:CreateEmptyWindow(id)
     end)
     if ok then
+        applyCommonWindowBehavior(window)
         return window
     end
     return nil
@@ -290,6 +376,7 @@ local function safeCreateWindow(id, title, width, height)
         return api.Interface:CreateWindow(id, title, width, height)
     end)
     if ok then
+        applyCommonWindowBehavior(window)
         return window
     end
     return nil
@@ -313,6 +400,80 @@ local function getTargetHudPosition()
     return tonumber(settings.target_hud_x) or 760, tonumber(settings.target_hud_y) or 360
 end
 
+local function isShiftDown()
+    if api ~= nil and api.Input ~= nil and api.Input.IsShiftKeyDown ~= nil then
+        local ok, down = pcall(function()
+            return api.Input:IsShiftKeyDown()
+        end)
+        if ok then
+            return down and true or false
+        end
+    end
+    return false
+end
+
+local function readWindowOffset(window)
+    if window == nil then
+        return nil, nil
+    end
+    local ok = false
+    local x, y = nil, nil
+    if window.GetEffectiveOffset ~= nil then
+        ok, x, y = pcall(function()
+            return window:GetEffectiveOffset()
+        end)
+    end
+    if (not ok or x == nil or y == nil) and window.GetOffset ~= nil then
+        ok, x, y = pcall(function()
+            return window:GetOffset()
+        end)
+    end
+    if ok then
+        return tonumber(x), tonumber(y)
+    end
+    return nil, nil
+end
+
+local function beginWindowDrag(window)
+    if window == nil or not isShiftDown() then
+        return
+    end
+    if window.StartMoving ~= nil then
+        window:StartMoving()
+    end
+    if api.Cursor ~= nil and api.Cursor.ClearCursor ~= nil then
+        api.Cursor:ClearCursor()
+    end
+    if api.Cursor ~= nil and api.Cursor.SetCursorImage ~= nil then
+        api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+    end
+end
+
+local function finishWindowDrag(window, onSaved)
+    if window == nil then
+        return
+    end
+    if window.StopMovingOrSizing ~= nil then
+        window:StopMovingOrSizing()
+    end
+    if api.Cursor ~= nil and api.Cursor.ClearCursor ~= nil then
+        api.Cursor:ClearCursor()
+    end
+    local x, y = readWindowOffset(window)
+    if x == nil or y == nil then
+        return
+    end
+    if window.RemoveAllAnchors ~= nil and window.AddAnchor ~= nil then
+        pcall(function()
+            window:RemoveAllAnchors()
+            window:AddAnchor("TOPLEFT", "UIParent", tonumber(x) or 0, tonumber(y) or 0)
+        end)
+    end
+    if onSaved ~= nil then
+        onSaved(x, y)
+    end
+end
+
 local function applyTargetHudPosition()
     if Ui.target_canvas == nil then
         return
@@ -326,6 +487,13 @@ local function getSessionPosition()
     return tonumber(settings.session_x) or 30, tonumber(settings.session_y) or 260
 end
 
+local function getSessionButtonPosition()
+    local settings = Shared.EnsureSettings()
+    local fallbackX = tonumber(settings.session_x) or 30
+    local fallbackY = (tonumber(settings.session_y) or 260) - (getSessionButtonSize() + 4)
+    return tonumber(settings.session_button_x) or fallbackX, tonumber(settings.session_button_y) or fallbackY
+end
+
 local function getSettingsWindowPosition()
     local settings = Shared.EnsureSettings()
     return tonumber(settings.settings_window_x) or 320, tonumber(settings.settings_window_y) or 180
@@ -333,12 +501,17 @@ end
 
 local function applySessionPosition()
     local x, y = getSessionPosition()
-    if Ui.session_toggle_window ~= nil then
-        safeAnchor(Ui.session_toggle_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y - 28))
-    end
     if Ui.session_window ~= nil then
         safeAnchor(Ui.session_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
     end
+end
+
+local function applySessionTogglePosition()
+    if Ui.session_toggle_window == nil then
+        return
+    end
+    local x, y = getSessionButtonPosition()
+    safeAnchor(Ui.session_toggle_window, "TOPLEFT", "UIParent", "TOPLEFT", math.floor(x), math.floor(y))
 end
 
 local function applySettingsWindowPosition()
@@ -361,26 +534,16 @@ local function enableTargetHudDrag(canvas)
     end
     if canvas.SetHandler ~= nil then
         canvas:SetHandler("OnDragStart", function(self)
-            if self.StartMoving ~= nil then
-                self:StartMoving()
-            end
+            beginWindowDrag(self)
         end)
         canvas:SetHandler("OnDragStop", function(self)
-            if self.StopMovingOrSizing ~= nil then
-                self:StopMovingOrSizing()
-            end
-            if self.GetOffset ~= nil then
-                local ok, x, y = pcall(function()
-                    return self:GetOffset()
-                end)
-                if ok then
-                    local settings = Shared.EnsureSettings()
-                    settings.target_hud_x = tonumber(x) or settings.target_hud_x
-                    settings.target_hud_y = tonumber(y) or settings.target_hud_y
-                    Shared.SaveSettings()
-                    applyTargetHudPosition()
-                end
-            end
+            finishWindowDrag(self, function(x, y)
+                local settings = Shared.EnsureSettings()
+                settings.target_hud_x = tonumber(x) or settings.target_hud_x
+                settings.target_hud_y = tonumber(y) or settings.target_hud_y
+                Shared.SaveSettings()
+                applyTargetHudPosition()
+            end)
         end)
     end
 end
@@ -396,26 +559,16 @@ local function attachTargetDrag(widget)
         widget:EnableDrag(true)
     end
     widget:SetHandler("OnDragStart", function()
-        if Ui.target_canvas ~= nil and Ui.target_canvas.StartMoving ~= nil then
-            Ui.target_canvas:StartMoving()
-        end
+        beginWindowDrag(Ui.target_canvas)
     end)
     widget:SetHandler("OnDragStop", function()
-        if Ui.target_canvas ~= nil and Ui.target_canvas.StopMovingOrSizing ~= nil then
-            Ui.target_canvas:StopMovingOrSizing()
-        end
-        if Ui.target_canvas ~= nil and Ui.target_canvas.GetOffset ~= nil then
-            local ok, x, y = pcall(function()
-                return Ui.target_canvas:GetOffset()
-            end)
-            if ok then
-                local settings = Shared.EnsureSettings()
-                settings.target_hud_x = tonumber(x) or settings.target_hud_x
-                settings.target_hud_y = tonumber(y) or settings.target_hud_y
-                Shared.SaveSettings()
-                applyTargetHudPosition()
-            end
-        end
+        finishWindowDrag(Ui.target_canvas, function(x, y)
+            local settings = Shared.EnsureSettings()
+            settings.target_hud_x = tonumber(x) or settings.target_hud_x
+            settings.target_hud_y = tonumber(y) or settings.target_hud_y
+            Shared.SaveSettings()
+            applyTargetHudPosition()
+        end)
     end)
 end
 
@@ -431,26 +584,16 @@ local function enableSessionDrag(window)
     end
     if window.SetHandler ~= nil then
         window:SetHandler("OnDragStart", function(self)
-            if self.StartMoving ~= nil then
-                self:StartMoving()
-            end
+            beginWindowDrag(self)
         end)
         window:SetHandler("OnDragStop", function(self)
-            if self.StopMovingOrSizing ~= nil then
-                self:StopMovingOrSizing()
-            end
-            if self.GetOffset ~= nil then
-                local ok, x, y = pcall(function()
-                    return self:GetOffset()
-                end)
-                if ok then
-                    local settings = Shared.EnsureSettings()
-                    settings.session_x = tonumber(x) or settings.session_x
-                    settings.session_y = tonumber(y) or settings.session_y
-                    Shared.SaveSettings()
-                    applySessionPosition()
-                end
-            end
+            finishWindowDrag(self, function(x, y)
+                local settings = Shared.EnsureSettings()
+                settings.session_x = tonumber(x) or settings.session_x
+                settings.session_y = tonumber(y) or settings.session_y
+                Shared.SaveSettings()
+                applySessionPosition()
+            end)
         end)
     end
 end
@@ -467,26 +610,16 @@ local function enableSessionToggleDrag(window)
     end
     if window.SetHandler ~= nil then
         window:SetHandler("OnDragStart", function(self)
-            if self.StartMoving ~= nil then
-                self:StartMoving()
-            end
+            beginWindowDrag(self)
         end)
         window:SetHandler("OnDragStop", function(self)
-            if self.StopMovingOrSizing ~= nil then
-                self:StopMovingOrSizing()
-            end
-            if self.GetOffset ~= nil then
-                local ok, x, y = pcall(function()
-                    return self:GetOffset()
-                end)
-                if ok then
-                    local settings = Shared.EnsureSettings()
-                    settings.session_x = tonumber(x) or settings.session_x
-                    settings.session_y = (tonumber(y) or (settings.session_y - 28)) + 28
-                    Shared.SaveSettings()
-                    applySessionPosition()
-                end
-            end
+            finishWindowDrag(self, function(x, y)
+                local settings = Shared.EnsureSettings()
+                settings.session_button_x = tonumber(x) or settings.session_button_x
+                settings.session_button_y = tonumber(y) or settings.session_button_y
+                Shared.SaveSettings()
+                applySessionTogglePosition()
+            end)
         end)
     end
 end
@@ -502,26 +635,16 @@ local function attachSessionToggleDrag(widget)
         widget:EnableDrag(true)
     end
     widget:SetHandler("OnDragStart", function()
-        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.StartMoving ~= nil then
-            Ui.session_toggle_window:StartMoving()
-        end
+        beginWindowDrag(Ui.session_toggle_window)
     end)
     widget:SetHandler("OnDragStop", function()
-        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.StopMovingOrSizing ~= nil then
-            Ui.session_toggle_window:StopMovingOrSizing()
-        end
-        if Ui.session_toggle_window ~= nil and Ui.session_toggle_window.GetOffset ~= nil then
-            local ok, x, y = pcall(function()
-                return Ui.session_toggle_window:GetOffset()
-            end)
-            if ok then
-                local settings = Shared.EnsureSettings()
-                settings.session_x = tonumber(x) or settings.session_x
-                settings.session_y = (tonumber(y) or (settings.session_y - 28)) + 28
-                Shared.SaveSettings()
-                applySessionPosition()
-            end
-        end
+        finishWindowDrag(Ui.session_toggle_window, function(x, y)
+            local settings = Shared.EnsureSettings()
+            settings.session_button_x = tonumber(x) or settings.session_button_x
+            settings.session_button_y = tonumber(y) or settings.session_button_y
+            Shared.SaveSettings()
+            applySessionTogglePosition()
+        end)
     end)
 end
 
@@ -537,43 +660,122 @@ local function enableSettingsWindowDrag(window)
     end
     if window.SetHandler ~= nil then
         window:SetHandler("OnDragStart", function(self)
-            if self.StartMoving ~= nil then
-                self:StartMoving()
-            end
+            beginWindowDrag(self)
         end)
         window:SetHandler("OnDragStop", function(self)
-            if self.StopMovingOrSizing ~= nil then
-                self:StopMovingOrSizing()
-            end
-            if self.GetOffset ~= nil then
-                local ok, x, y = pcall(function()
-                    return self:GetOffset()
-                end)
-                if ok then
-                    local settings = Shared.EnsureSettings()
-                    settings.settings_window_x = tonumber(x) or settings.settings_window_x
-                    settings.settings_window_y = tonumber(y) or settings.settings_window_y
-                    Shared.SaveSettings()
-                    applySettingsWindowPosition()
-                end
-            end
+            finishWindowDrag(self, function(x, y)
+                local settings = Shared.EnsureSettings()
+                settings.settings_window_x = tonumber(x) or settings.settings_window_x
+                settings.settings_window_y = tonumber(y) or settings.settings_window_y
+                Shared.SaveSettings()
+                applySettingsWindowPosition()
+            end)
         end)
     end
 end
 
-local function applyCommonWindowBehavior(window)
+applyCommonWindowBehavior = function(window)
     if window == nil then
         return
     end
     pcall(function()
-        window:SetCloseOnEscape(true)
+        window:SetCloseOnEscape(false)
     end)
     pcall(function()
         window:EnableHidingIsRemove(false)
     end)
     pcall(function()
-        window:SetUILayer("normal")
+        window:SetUILayer("game")
     end)
+end
+
+local function createPlainButton(parent, id, x, y, width, height, onClick)
+    if parent == nil or parent.CreateChildWidget == nil then
+        return nil
+    end
+    local button = nil
+    local ok = pcall(function()
+        button = parent:CreateChildWidget("button", id, 0, true)
+    end)
+    if not ok or button == nil then
+        return nil
+    end
+    safeAnchor(button, "TOPLEFT", parent, "TOPLEFT", x, y)
+    safeSetExtent(button, width, height)
+    safeSetText(button, "")
+    if onClick ~= nil and button.SetHandler ~= nil then
+        button:SetHandler("OnClick", onClick)
+    end
+    safeSetVisible(button, true)
+    return button
+end
+
+local function createSlider(id, parent, x, y, width, minValue, maxValue, step)
+    if api._Library == nil or api._Library.UI == nil or api._Library.UI.CreateSlider == nil then
+        return nil
+    end
+    local slider = nil
+    local ok = pcall(function()
+        slider = api._Library.UI.CreateSlider(id, parent)
+    end)
+    if not ok or slider == nil then
+        return nil
+    end
+    safeAnchor(slider, "TOPLEFT", parent, "TOPLEFT", x, y)
+    safeSetExtent(slider, width, 26)
+    pcall(function()
+        slider:SetMinMaxValues(minValue, maxValue)
+    end)
+    if slider.SetStep ~= nil then
+        pcall(function()
+            slider:SetStep(step)
+        end)
+    elseif slider.SetValueStep ~= nil then
+        pcall(function()
+            slider:SetValueStep(step)
+        end)
+    end
+    safeSetVisible(slider, true)
+    return slider
+end
+
+local function assetPath(relativePath)
+    local baseDir = type(api) == "table" and type(api.baseDir) == "string" and api.baseDir or ""
+    baseDir = string.gsub(baseDir, "\\", "/")
+    if baseDir ~= "" then
+        return string.gsub(baseDir .. "/" .. tostring(relativePath or ""), "/+", "/")
+    end
+    return tostring(relativePath or "")
+end
+
+local function createImageDrawable(widget, id, path, layer, width, height)
+    if widget == nil then
+        return nil
+    end
+    local drawable = nil
+    local ok = pcall(function()
+        if widget.CreateImageDrawable ~= nil then
+            drawable = widget:CreateImageDrawable(id, layer or "artwork")
+        elseif widget.CreateDrawable ~= nil then
+            drawable = widget:CreateDrawable(id, layer or "artwork")
+        end
+    end)
+    if not ok or drawable == nil then
+        return nil
+    end
+    safeSetTexture(drawable, path)
+    if drawable.AddAnchor ~= nil then
+        pcall(function()
+            drawable:AddAnchor("TOPLEFT", widget, 0, 0)
+        end)
+    end
+    if drawable.SetExtent ~= nil then
+        pcall(function()
+            drawable:SetExtent(width, height)
+        end)
+    end
+    safeSetDrawableVisible(drawable, true)
+    return drawable
 end
 
 local function setLabelStyle(label, fontSize, color)
@@ -598,7 +800,7 @@ local function setLabelStyle(label, fontSize, color)
     end
 end
 
-local function applyHelperScale()
+applyHelperScale = function()
     local scale = getHelperScale()
     local compactHud = getHudMode() == "compact"
     local font13 = scaledFontSizeForScale(13, scale)
@@ -795,7 +997,7 @@ local function createIcon(id, parent)
     return icon
 end
 
-local function notifySettingsChanged()
+notifySettingsChanged = function()
     if Ui.on_settings_changed ~= nil then
         Ui.on_settings_changed()
     end
@@ -886,6 +1088,47 @@ local function createSettingsRow(parent, rowIndex, title, settingKey)
         end
     )
     Ui.settings_controls[settingKey] = button
+end
+
+local function createSettingsSliderRow(parent, rowIndex, title, settingKey)
+    local top = 56 + ((rowIndex - 1) * SETTINGS_ROW_HEIGHT)
+    local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 86, 24, 14, getAlignLeft())
+    safeSetText(label, title)
+    local valueLabel = createLabel(
+        "NuziFishingSettingsSliderValue" .. tostring(rowIndex),
+        parent,
+        284,
+        top + 4,
+        32,
+        24,
+        13,
+        getAlignCenter(),
+        { 0.95, 0.95, 0.95, 1 }
+    )
+    local slider = nil
+    if settingKey == "helper_scale" then
+        slider = createSlider("NuziFishingSettingsSlider" .. tostring(rowIndex), parent, 110, top, 170, 80, 160, 10)
+        if slider ~= nil and slider.SetHandler ~= nil then
+            slider:SetHandler("OnSliderChanged", function(_, raw)
+                local numeric = roundNumber(raw)
+                safeSetText(valueLabel, tostring(numeric) .. "%")
+                setHelperScale((tonumber(numeric) or 100) / 100)
+            end)
+        end
+    elseif settingKey == "session_button_size" then
+        slider = createSlider("NuziFishingSettingsSlider" .. tostring(rowIndex), parent, 110, top, 170, 32, 96, 1)
+        if slider ~= nil and slider.SetHandler ~= nil then
+            slider:SetHandler("OnSliderChanged", function(_, raw)
+                local numeric = roundNumber(raw)
+                safeSetText(valueLabel, tostring(numeric))
+                setSessionButtonSize(numeric)
+            end)
+        end
+    end
+    Ui.settings_sliders[settingKey] = {
+        slider = slider,
+        value = valueLabel
+    }
 end
 
 local function createTargetHud()
@@ -1005,7 +1248,7 @@ local function createSessionWindow()
     if window == nil then
         return
     end
-    safeSetExtent(window, 360, 268)
+    safeSetExtent(window, 360, 348)
     safeSetVisible(window, false)
     Ui.session_window = window
     applySessionPosition()
@@ -1013,23 +1256,27 @@ local function createSessionWindow()
     local bg = safeCreateColorDrawable(window, 0.05, 0.05, 0.05, 0.78, "background")
     safeAddAnchor(bg, "TOPLEFT", window, "TOPLEFT", -10, -8)
     safeAddAnchor(bg, "BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
-    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 150, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.session_mode_button = createButton("NuziFishingHudModeButton", window, getHudModeButtonLabel(), 156, 0, 50, 24, cycleHudMode)
+    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 260, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_mode_button = createButton("NuziFishingHudModeButton", window, getHudModeButtonLabel(), 0, 28, 60, 24, cycleHudMode)
     safeSetText(Ui.session_mode_button, getHudModeButtonLabel())
-    Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 234, 0, 54, 24, startFishingSession)
-    Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 294, 0, 54, 24, endFishingSession)
-    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 30, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 48, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
-    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 170, 30, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
-    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 170, 48, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
-    Ui.session_labels.fish_header = createLabel("NuziFishingSessionFishHeader", window, 0, 76, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    Ui.session_settings_button = createButton("NuziFishingSessionSettings", window, "C", 318, 0, 30, 24, function()
+        Ui.ToggleSettings()
+    end)
+    Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 198, 28, 72, 24, startFishingSession)
+    Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 276, 28, 72, 24, endFishingSession)
+    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 62, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
+    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 80, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
+    Ui.session_labels.rate = createLabel("NuziFishingSessionRate", window, 0, 98, 160, 18, 14, getAlignLeft(), { 0.9, 0.98, 0.72, 1 })
+    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 170, 62, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
+    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 170, 80, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
+    Ui.session_labels.fish_header = createLabel("NuziFishingSessionFishHeader", window, 0, 126, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
     safeSetText(Ui.session_labels.fish_header, "Current Session Fish")
     for index = 1, 4 do
         Ui.session_fish_labels[index] = createLabel(
             "NuziFishingSessionFish" .. tostring(index),
             window,
             0,
-            96 + ((index - 1) * 18),
+            148 + ((index - 1) * 18),
             330,
             18,
             13,
@@ -1037,11 +1284,11 @@ local function createSessionWindow()
             { 0.96, 0.96, 0.96, 1 }
         )
     end
-    Ui.session_labels.history_header = createLabel("NuziFishingSessionHistoryHeader", window, 0, 176, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    Ui.session_labels.history_header = createLabel("NuziFishingSessionHistoryHeader", window, 0, 236, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
     safeSetText(Ui.session_labels.history_header, "Recent Sessions")
     for index = 1, 4 do
         local rowIndex = index
-        local rowY = 198 + ((index - 1) * 34)
+        local rowY = 258 + ((index - 1) * 22)
         local title = createLabel("NuziFishingSessionHistoryTitle" .. tostring(index), window, 0, rowY, 228, 16, 13, getAlignLeft(), { 1, 1, 1, 1 })
         local detail = createLabel("NuziFishingSessionHistoryDetail" .. tostring(index), window, 0, rowY + 14, 280, 16, 12, getAlignLeft(), { 0.85, 0.85, 0.85, 1 })
         local remove = createButton("NuziFishingSessionDelete" .. tostring(index), window, "X", 314, rowY + 2, 30, 22, function()
@@ -1059,6 +1306,23 @@ local function createSessionWindow()
     end
 end
 
+local function applySessionToggleLayout()
+    local size = getSessionButtonSize()
+    if Ui.session_toggle_window ~= nil then
+        safeSetExtent(Ui.session_toggle_window, size, size)
+    end
+    if Ui.session_toggle_button ~= nil then
+        safeSetExtent(Ui.session_toggle_button, size, size)
+    end
+    if Ui.session_toggle_icon ~= nil and Ui.session_toggle_icon.SetExtent ~= nil then
+        pcall(function()
+            Ui.session_toggle_icon:SetExtent(size, size)
+        end)
+    end
+end
+
+Ui.ApplySessionToggleLayout = applySessionToggleLayout
+
 local function createSessionToggle()
     if Ui.session_toggle_window ~= nil then
         return
@@ -1068,14 +1332,22 @@ local function createSessionToggle()
     if window == nil then
         return
     end
-    safeSetExtent(window, 34, 24)
+    safeSetExtent(window, getSessionButtonSize(), getSessionButtonSize())
     safeSetVisible(window, false)
     Ui.session_toggle_window = window
-    applySessionPosition()
+    applySessionTogglePosition()
     enableSessionToggleDrag(window)
-    Ui.session_toggle_button = createButton("NuziFishingSessionToggleButton", window, "NF", 0, 0, 34, 24, toggleSessionPanel)
-    safeSetText(Ui.session_toggle_button, "NF")
+    Ui.session_toggle_button = createPlainButton(window, "NuziFishingSessionToggleButton", 0, 0, getSessionButtonSize(), getSessionButtonSize(), toggleSessionPanel)
+    Ui.session_toggle_icon = createImageDrawable(
+        window,
+        "NuziFishingSessionToggleIcon",
+        assetPath("nuzi-fishing/icon_launcher.png"),
+        "artwork",
+        getSessionButtonSize(),
+        getSessionButtonSize()
+    )
     attachSessionToggleDrag(Ui.session_toggle_button)
+    applySessionToggleLayout()
 end
 
 local function createSettingsWindow()
@@ -1095,7 +1367,11 @@ local function createSettingsWindow()
     enableSettingsWindowDrag(window)
 
     for index, row in ipairs(SETTINGS_ROWS) do
-        createSettingsRow(window, index, row.label, row.key)
+        if row.kind == "slider" then
+            createSettingsSliderRow(window, index, row.label, row.key)
+        else
+            createSettingsRow(window, index, row.label, row.key)
+        end
     end
 
     Ui.RefreshSettings()
@@ -1124,6 +1400,17 @@ function Ui.RefreshSettings()
                 button:SetText(settings[key] and "On" or "Off")
             end
         end
+    end
+    if Ui.settings_sliders.helper_scale ~= nil then
+        safeSetSliderValue(Ui.settings_sliders.helper_scale.slider, getHelperScale() * 100)
+        safeSetText(Ui.settings_sliders.helper_scale.value, getHelperScaleLabel())
+    end
+    if Ui.settings_sliders.session_button_size ~= nil then
+        safeSetSliderValue(Ui.settings_sliders.session_button_size.slider, getSessionButtonSize())
+        safeSetText(Ui.settings_sliders.session_button_size.value, getSessionButtonSizeLabel())
+    end
+    if Ui.ApplySessionToggleLayout ~= nil then
+        Ui.ApplySessionToggleLayout()
     end
 end
 
@@ -1172,7 +1459,6 @@ function Ui.Render(uiState)
     local coachFontNormal = scaledFontSizeForScale(22, helperScale)
     local coachFontLarge = scaledFontSizeForScale(24, helperScale)
     safeSetVisible(Ui.session_toggle_window, settings.show_session)
-    safeSetText(Ui.session_toggle_button, "NF")
     safeSetText(Ui.session_mode_button, getHudModeButtonLabel())
     local hasPlaceholder = type(target.icon_placeholder_text) == "string" and target.icon_placeholder_text ~= ""
     local hasIcon = type(target.icon_path) == "string" and target.icon_path ~= ""
@@ -1306,10 +1592,12 @@ function Ui.Render(uiState)
         safeSetText(Ui.session_title, session.title_text or "")
         safeSetText(Ui.session_labels.elapsed, session.elapsed_text or "")
         safeSetText(Ui.session_labels.catches, session.catches_text or "")
+        safeSetText(Ui.session_labels.rate, session.rate_text or "")
         safeSetText(Ui.session_labels.active, session.active_text or "")
         safeSetText(Ui.session_labels.marked, session.marked_text or "")
         safeSetVisible(Ui.session_buttons.start, not session.has_active)
         safeSetVisible(Ui.session_buttons.finish, session.has_active)
+        safeSetVisible(Ui.session_labels.rate, session.rate_text ~= nil and session.rate_text ~= "")
         safeSetVisible(Ui.session_labels.fish_header, session.has_active)
         for index = 1, 4 do
             local fishText = session.fish_lines ~= nil and session.fish_lines[index] or nil
@@ -1371,7 +1659,9 @@ function Ui.Unload()
     Ui.boat_row = nil
     Ui.session_toggle_window = nil
     Ui.session_toggle_button = nil
+    Ui.session_toggle_icon = nil
     Ui.session_mode_button = nil
+    Ui.session_settings_button = nil
     Ui.session_window = nil
     Ui.session_title = nil
     Ui.session_labels = {}
@@ -1379,7 +1669,9 @@ function Ui.Unload()
     Ui.session_fish_labels = {}
     Ui.session_history_rows = {}
     Ui.settings_controls = {}
+    Ui.settings_sliders = {}
     Ui.on_settings_changed = nil
+    Ui.ApplySessionToggleLayout = nil
 end
 
 return Ui

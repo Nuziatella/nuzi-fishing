@@ -709,7 +709,7 @@ local function buildTargetState(nowMs)
         targetState.icon_placeholder_text = "TUG"
         targetState.status_text = settings.show_status_text and "Strength contest" or ""
         targetState.coach_text = settings.show_coach and "HOLD ON" or ""
-        targetState.coach_hint = settings.show_coach_hint and "Keep pace and wait for the next prompt." or ""
+        targetState.coach_hint = settings.show_coach_hint and "This is the part where both of you question your life choices and why you're fishing instead of doing larders." or ""
     elseif settings.show_wait then
         Tracker.last_action_buff_id = nil
         Tracker.last_action_time_left_ms = nil
@@ -717,7 +717,7 @@ local function buildTargetState(nowMs)
         targetState.icon_placeholder_text = "GLUB"
         targetState.status_text = settings.show_status_text and "Waiting for prompt" or ""
         targetState.coach_text = settings.show_coach and "READY" or ""
-        targetState.coach_hint = settings.show_coach_hint and "Watch for the next fishing callout." or ""
+        targetState.coach_hint = settings.show_coach_hint and "Stay sharp. Chaos incoming!" or ""
         if settings.show_timers then
             targetState.timer_text = "Waiting"
         end
@@ -837,6 +837,7 @@ local function buildSessionState(nowMs, markers, catches)
         title_text = "",
         elapsed_text = "",
         catches_text = "",
+        rate_text = "",
         active_text = "",
         marked_text = "",
         fish_lines = {},
@@ -856,9 +857,16 @@ local function buildSessionState(nowMs, markers, catches)
     local activeSession = Shared.GetActiveFishingSession()
     if activeSession ~= nil then
         session.has_active = true
+        local startedMs = tonumber(activeSession.started_ms) or nowMs
+        local durationMs = math.max(0, nowMs - startedMs)
+        local catchesPerHour = 0
+        if durationMs > 0 then
+            catchesPerHour = math.floor((((tonumber(activeSession.catches) or 0) * 3600000) / durationMs) + 0.5)
+        end
         session.title_text = tostring(activeSession.title or "Current Session")
-        session.elapsed_text = "Time " .. Shared.FormatDurationMs(nowMs - (tonumber(activeSession.started_ms) or nowMs))
+        session.elapsed_text = "Time " .. Shared.FormatDurationMs(durationMs)
         session.catches_text = "Catches " .. tostring(tonumber(activeSession.catches) or 0)
+        session.rate_text = "Rate " .. tostring(catchesPerHour) .. "/hr"
         session.active_text = "Active " .. tostring(#catches)
         session.marked_text = "Marked " .. tostring(#markers)
 
@@ -884,6 +892,7 @@ local function buildSessionState(nowMs, markers, catches)
         session.title_text = "No active session"
         session.elapsed_text = "Start a session to log catches."
         session.catches_text = ""
+        session.rate_text = ""
         session.active_text = ""
         session.marked_text = ""
     end
@@ -902,9 +911,14 @@ local function buildSessionState(nowMs, markers, catches)
             id = saved.id,
             title = tostring(saved.title or ("Session " .. tostring(index))),
             detail = string.format(
-                "%s | %s catches",
+                "%s | %s catches | %s/hr",
                 Shared.FormatDurationMs(saved.duration_ms or 0),
-                tostring(tonumber(saved.catches) or 0)
+                tostring(tonumber(saved.catches) or 0),
+                tostring(
+                    math.floor(
+                        ((((tonumber(saved.catches) or 0) * 3600000) / math.max(1, tonumber(saved.duration_ms) or 0)) + 0.5)
+                    )
+                )
             ),
             fish = table.concat(fishRows, ", ")
         })
@@ -960,6 +974,7 @@ function Tracker.Reset()
             title_text = "",
             elapsed_text = "",
             catches_text = "",
+            rate_text = "",
             active_text = "",
             marked_text = "",
             fish_lines = {},

@@ -1,21 +1,52 @@
 local api = require("api")
+local Core = api._NuziCore or require("nuzi-core/core")
 
-local function loadModule(name)
-    local ok, mod = pcall(require, "nuzi-fishing/" .. name)
-    if ok then
-        return mod
+local Events = Core.Events
+local Log = Core.Log
+local Require = Core.Require
+local Scheduler = Core.Scheduler
+
+local bootstrapLogger = Log.Create("Nuzi Fishing")
+local moduleErrors = {}
+
+local function appendModuleErrors(name, errors)
+    if type(errors) ~= "table" or #errors == 0 then
+        moduleErrors[#moduleErrors + 1] = string.format("%s: unknown load failure", tostring(name))
+        return
     end
-    ok, mod = pcall(require, "nuzi-fishing." .. name)
-    if ok then
-        return mod
-    end
-    return nil
+    moduleErrors[#moduleErrors + 1] = string.format(
+        "%s: %s",
+        tostring(name),
+        Require.DescribeErrors(errors)
+    )
 end
 
-local Constants = loadModule("constants")
-local Shared = loadModule("shared")
-local Tracker = loadModule("tracker")
-local Ui = loadModule("ui")
+local Constants, _, constantErrors = Require.Addon("nuzi-fishing", "constants")
+if Constants == nil then
+    appendModuleErrors("constants", constantErrors)
+end
+
+local logger = Log.Create(Constants ~= nil and Constants.ADDON_NAME or "Nuzi Fishing")
+local modules = nil
+local failures = nil
+if Constants ~= nil then
+    modules, failures = Require.AddonSet("nuzi-fishing", {
+        "shared",
+        "tracker",
+        "ui"
+    })
+else
+    modules = {}
+    failures = {}
+end
+
+for name, failure in pairs(failures or {}) do
+    appendModuleErrors(name, failure.errors)
+end
+
+local Shared = modules.shared
+local Tracker = modules.tracker
+local Ui = modules.ui
 
 local addon = {
     name = Constants ~= nil and Constants.ADDON_NAME or "Nuzi Fishing",
@@ -24,23 +55,28 @@ local addon = {
     desc = Constants ~= nil and Constants.ADDON_DESC or "Fishing coach HUD"
 }
 
-local updateElapsedMs = 0
 local TARGETED_UPDATE_INTERVAL_MS = 100
 local IDLE_UPDATE_INTERVAL_MS = 250
+
+local updateTicker = Scheduler.CreateTicker({
+    interval_ms = Constants ~= nil and Constants.UPDATE_INTERVAL_MS or 16,
+    max_elapsed_ms = IDLE_UPDATE_INTERVAL_MS * 4
+})
+local events = Events.Create({
+    logger = logger
+})
 
 local function modulesReady()
     return Constants ~= nil and Shared ~= nil and Tracker ~= nil and Ui ~= nil
 end
 
-local function normalizeDeltaMs(dt)
-    local value = tonumber(dt) or 0
-    if value < 0 then
-        value = 0
+local function logModuleErrors()
+    if #moduleErrors == 0 then
+        return
     end
-    if value > 0 and value < 5 then
-        value = value * 1000
+    for _, detail in ipairs(moduleErrors) do
+        logger:Err("Module load error: " .. tostring(detail))
     end
-    return value
 end
 
 local function hasCurrentTarget()
@@ -123,8 +159,8 @@ local function renderNow()
     local ok, err = pcall(function()
         Ui.Render(Tracker.GetUiState())
     end)
-    if not ok and api.Log ~= nil and api.Log.Err ~= nil then
-        api.Log:Err("[Nuzi Fishing] Render error: " .. tostring(err))
+    if not ok then
+        logger:Err("Render error: " .. tostring(err))
     end
 end
 
@@ -133,13 +169,11 @@ local function onUpdate(dt)
         return
     end
 
-    updateElapsedMs = updateElapsedMs + normalizeDeltaMs(dt)
     local intervalMs = getUpdateIntervalMs()
-    if updateElapsedMs < intervalMs then
+    local shouldRun, elapsedMs = updateTicker:Advance(dt, intervalMs)
+    if not shouldRun then
         return
     end
-    local elapsedMs = updateElapsedMs
-    updateElapsedMs = 0
 
     local settings = Shared.EnsureSettings()
     if not settings.enabled then
@@ -151,9 +185,7 @@ local function onUpdate(dt)
         Ui.Render(Tracker.Update(elapsedMs))
     end)
     if not ok then
-        if api.Log ~= nil and api.Log.Err ~= nil then
-            api.Log:Err("[Nuzi Fishing] Update error: " .. tostring(err))
-        end
+        logger:Err("Update error: " .. tostring(err))
         pcall(function()
             Tracker.Reset()
             Ui.HideHud()
@@ -166,7 +198,7 @@ local function onUiReloaded()
         return
     end
 
-    updateElapsedMs = 0
+    updateTicker:Reset()
     Tracker.Reset()
     Ui.Unload()
     Ui.Init({
@@ -184,34 +216,28 @@ end
 
 local function onLoad()
     if not modulesReady() then
-        if api.Log ~= nil and api.Log.Err ~= nil then
-            api.Log:Err("[Nuzi Fishing] Failed to load one or more modules.")
-        end
+        logModuleErrors()
+        bootstrapLogger:Err("Failed to load one or more modules.")
         return
     end
 
+    logModuleErrors()
     Shared.LoadSettings()
+    updateTicker:Reset()
     Tracker.Reset()
     Ui.Init({
         on_settings_changed = renderNow
     })
     renderNow()
-    api.On("UPDATE", onUpdate)
-    api.On("UI_RELOADED", onUiReloaded)
-    pcall(function()
-        api.On("UPDATE_BINDINGS", onUpdateBindings)
-    end)
-    if api.Log ~= nil and api.Log.Info ~= nil then
-        api.Log:Info("[Nuzi Fishing] Loaded v" .. tostring(addon.version))
-    end
+    events:OnSafe("UPDATE", "UPDATE", onUpdate)
+    events:OnSafe("UI_RELOADED", "UI_RELOADED", onUiReloaded)
+    events:OptionalOnSafe("UPDATE_BINDINGS", "UPDATE_BINDINGS", onUpdateBindings)
+    logger:Info("Loaded v" .. tostring(addon.version))
 end
 
 local function onUnload()
-    api.On("UPDATE", function() end)
-    api.On("UI_RELOADED", function() end)
-    pcall(function()
-        api.On("UPDATE_BINDINGS", function() end)
-    end)
+    events:ClearAll()
+    updateTicker:Reset()
     if Ui ~= nil then
         Ui.Unload()
     end

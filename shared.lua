@@ -1,79 +1,20 @@
 local api = require("api")
+local Core = api._NuziCore or require("nuzi-core/core")
 local Constants = require("nuzi-fishing/constants")
+
+local Log = Core.Log
+local Runtime = Core.Runtime
+local Settings = Core.Settings
+
+local logger = Log.Create(Constants.ADDON_NAME or "Nuzi Fishing")
 
 local Shared = {
     settings = nil
 }
 
-local function readTableFile(path)
-    if api.File == nil or api.File.Read == nil then
-        return nil
-    end
-    local ok, value = pcall(function()
-        return api.File:Read(path)
-    end)
-    if ok and type(value) == "table" then
-        return value
-    end
-    return nil
-end
-
-local function writeTableFile(path, value)
-    if api.File == nil or api.File.Write == nil or type(value) ~= "table" then
-        return false
-    end
-    local ok = pcall(function()
-        api.File:Write(path, value)
-    end)
-    return ok
-end
-
-local function isEmptyTable(value)
-    if type(value) ~= "table" then
-        return false
-    end
-    for _ in pairs(value) do
-        return false
-    end
-    return true
-end
-
-local function pruneUnknown(into, defaults)
-    local changed = false
-    for key, value in pairs(into) do
-        local defaultValue = defaults[key]
-        if defaultValue == nil then
-            into[key] = nil
-            changed = true
-        elseif type(value) == "table" and type(defaultValue) == "table" and not isEmptyTable(defaultValue) then
-            if pruneUnknown(value, defaultValue) then
-                changed = true
-            end
-        end
-    end
-    return changed
-end
-
-local function copyDefaults(into, defaults)
-    local changed = false
-    for key, value in pairs(defaults) do
-        if type(value) == "table" then
-            if type(into[key]) ~= "table" then
-                into[key] = {}
-                changed = true
-            end
-            if copyDefaults(into[key], value) then
-                changed = true
-            end
-        elseif into[key] == nil then
-            into[key] = value
-            changed = true
-        end
-    end
-    return changed
-end
-
 local function ensureSessionLog(settings)
+    local changed = false
+
     if type(settings.session_log) ~= "table" then
         settings.session_log = {
             active = false,
@@ -81,17 +22,32 @@ local function ensureSessionLog(settings)
             saved = {},
             next_id = 1
         }
+        changed = true
     end
+
     local log = settings.session_log
     if type(log.saved) ~= "table" then
         log.saved = {}
+        changed = true
     end
     if type(log.current) ~= "table" then
         log.current = {}
+        changed = true
     end
-    log.active = log.active and true or false
-    log.next_id = tonumber(log.next_id) or 1
-    return log
+
+    local active = log.active and true or false
+    if log.active ~= active then
+        log.active = active
+        changed = true
+    end
+
+    local nextId = tonumber(log.next_id) or 1
+    if log.next_id ~= nextId then
+        log.next_id = nextId
+        changed = true
+    end
+
+    return log, changed
 end
 
 local function normalizeHudMode(settings)
@@ -104,16 +60,82 @@ local function normalizeHudMode(settings)
     return changed
 end
 
-local function getUiNowMs()
-    if api.Time ~= nil and api.Time.GetUiMsec ~= nil then
-        local ok, value = pcall(function()
-            return api.Time:GetUiMsec()
-        end)
-        if ok and value ~= nil then
-            return tonumber(value) or 0
+local store = Settings.CreateAddonStore(Constants, {
+    read_mode = "serialized_then_flat",
+    write_mode = "serialized_then_flat",
+    read_raw_text_fallback = true,
+    write_mirror_paths = {
+        Constants.LEGACY_SETTINGS_FILE_PATH
+    },
+    prune_unknown = true,
+    skip_empty_default_tables = true,
+    normalize = function(settings)
+        local changed = false
+        if normalizeHudMode(settings) then
+            changed = true
         end
+        local _, sessionChanged = ensureSessionLog(settings)
+        if sessionChanged then
+            changed = true
+        end
+        return changed
+    end,
+    log_name = Constants.ADDON_NAME or "Nuzi Fishing"
+})
+
+Shared.store = store
+Shared.GetUiNowMs = Runtime.GetUiNowMs
+
+function Shared.GetStore()
+    return store
+end
+
+function Shared.LoadSettings()
+    local settings = store:Load()
+    Shared.settings = settings
+    return settings
+end
+
+function Shared.EnsureSettings()
+    local settings = store:Ensure()
+    Shared.settings = settings
+    return settings
+end
+
+function Shared.SaveSettings()
+    local settings = Shared.EnsureSettings()
+    local ok = store:Save()
+    Shared.settings = settings
+    if not ok then
+        logger:Err("Failed to save settings.")
     end
-    return 0
+    return ok
+end
+
+function Shared.ToggleSetting(key)
+    local settings = Shared.EnsureSettings()
+    settings[key] = not settings[key]
+    Shared.SaveSettings()
+    return settings[key]
+end
+
+function Shared.GetSessionLog()
+    local settings = Shared.EnsureSettings()
+    local log = ensureSessionLog(settings)
+    return log
+end
+
+function Shared.GetActiveFishingSession()
+    local log = Shared.GetSessionLog()
+    if not log.active or Runtime.IsEmptyTable(log.current) then
+        return nil
+    end
+    return log.current
+end
+
+function Shared.GetSavedFishingSessions()
+    local log = Shared.GetSessionLog()
+    return log.saved
 end
 
 local function buildSessionLabel(id)
@@ -132,80 +154,9 @@ local function buildSessionLabel(id)
     return "Session " .. tostring(id)
 end
 
-function Shared.LoadSettings()
-    local settings = readTableFile(Constants.SETTINGS_FILE_PATH)
-    local migrated = false
-    if type(settings) ~= "table" then
-        settings = readTableFile(Constants.LEGACY_SETTINGS_FILE_PATH)
-        if type(settings) == "table" then
-            migrated = true
-        end
-    end
-    if type(settings) ~= "table" then
-        settings = api.GetSettings(Constants.ADDON_ID) or {}
-    end
-    local changed = pruneUnknown(settings, Constants.DEFAULT_SETTINGS)
-    if copyDefaults(settings, Constants.DEFAULT_SETTINGS) then
-        changed = true
-    end
-    if normalizeHudMode(settings) then
-        changed = true
-    end
-    ensureSessionLog(settings)
-    Shared.settings = settings
-    if changed or migrated then
-        Shared.SaveSettings()
-    end
-    return Shared.settings
-end
-
-function Shared.EnsureSettings()
-    if Shared.settings == nil then
-        return Shared.LoadSettings()
-    end
-    return Shared.settings
-end
-
-function Shared.SaveSettings()
-    local settings = Shared.EnsureSettings()
-    writeTableFile(Constants.SETTINGS_FILE_PATH, settings)
-    if api.SaveSettings ~= nil then
-        api.SaveSettings()
-    end
-end
-
-function Shared.ToggleSetting(key)
-    local settings = Shared.EnsureSettings()
-    settings[key] = not settings[key]
-    Shared.SaveSettings()
-    return settings[key]
-end
-
-function Shared.GetUiNowMs()
-    return getUiNowMs()
-end
-
-function Shared.GetSessionLog()
-    local settings = Shared.EnsureSettings()
-    return ensureSessionLog(settings)
-end
-
-function Shared.GetActiveFishingSession()
-    local log = Shared.GetSessionLog()
-    if not log.active or isEmptyTable(log.current) then
-        return nil
-    end
-    return log.current
-end
-
-function Shared.GetSavedFishingSessions()
-    local log = Shared.GetSessionLog()
-    return log.saved
-end
-
 function Shared.StartFishingSession(nowMs)
     local log = Shared.GetSessionLog()
-    if log.active and not isEmptyTable(log.current) then
+    if log.active and not Runtime.IsEmptyTable(log.current) then
         return log.current
     end
     local id = tonumber(log.next_id) or 1
@@ -214,7 +165,7 @@ function Shared.StartFishingSession(nowMs)
     log.current = {
         id = id,
         title = buildSessionLabel(id),
-        started_ms = tonumber(nowMs) or getUiNowMs(),
+        started_ms = tonumber(nowMs) or Shared.GetUiNowMs(),
         catches = 0,
         fish_counts = {}
     }
@@ -224,11 +175,11 @@ end
 
 function Shared.EndFishingSession(nowMs)
     local log = Shared.GetSessionLog()
-    if not log.active or isEmptyTable(log.current) then
+    if not log.active or Runtime.IsEmptyTable(log.current) then
         return nil
     end
     local finished = log.current
-    local endMs = tonumber(nowMs) or getUiNowMs()
+    local endMs = tonumber(nowMs) or Shared.GetUiNowMs()
     finished.ended_ms = endMs
     finished.duration_ms = math.max(0, endMs - (tonumber(finished.started_ms) or endMs))
     finished.active = false
@@ -261,12 +212,12 @@ end
 
 function Shared.RecordFishingCatch(fishName, nowMs)
     local log = Shared.GetSessionLog()
-    if not log.active or isEmptyTable(log.current) then
+    if not log.active or Runtime.IsEmptyTable(log.current) then
         return false
     end
     local current = log.current
     current.catches = (tonumber(current.catches) or 0) + 1
-    current.last_catch_ms = tonumber(nowMs) or getUiNowMs()
+    current.last_catch_ms = tonumber(nowMs) or Shared.GetUiNowMs()
     if type(current.fish_counts) ~= "table" then
         current.fish_counts = {}
     end
