@@ -1,6 +1,7 @@
 local api = require("api")
 local Constants = require("nuzi-fishing/constants")
 local Shared = require("nuzi-fishing/shared")
+local CreateNuziSlider = nil
 
 local Ui = {
     target_canvas = nil,
@@ -36,6 +37,10 @@ local Ui = {
     settings_sliders = {},
     on_settings_changed = nil
 }
+
+pcall(function()
+    CreateNuziSlider = require("nuzi-core/ui/slider")
+end)
 
 local HELPER_SCALE_OPTIONS = { 0.8, 1.0, 1.2, 1.4, 1.6 }
 local SETTINGS_ROW_HEIGHT = 26
@@ -711,14 +716,18 @@ local function createPlainButton(parent, id, x, y, width, height, onClick)
 end
 
 local function createSlider(id, parent, x, y, width, minValue, maxValue, step)
-    if api._Library == nil or api._Library.UI == nil or api._Library.UI.CreateSlider == nil then
-        return nil
-    end
     local slider = nil
-    local ok = pcall(function()
-        slider = api._Library.UI.CreateSlider(id, parent)
-    end)
-    if not ok or slider == nil then
+    if CreateNuziSlider ~= nil then
+        pcall(function()
+            slider = CreateNuziSlider(id, parent)
+        end)
+    end
+    if slider == nil and api._Library ~= nil and api._Library.UI ~= nil and api._Library.UI.CreateSlider ~= nil then
+        pcall(function()
+            slider = api._Library.UI.CreateSlider(id, parent)
+        end)
+    end
+    if slider == nil then
         return nil
     end
     safeAnchor(slider, "TOPLEFT", parent, "TOPLEFT", x, y)
