@@ -423,14 +423,14 @@ local function readWindowOffset(window)
     end
     local ok = false
     local x, y = nil, nil
-    if window.GetEffectiveOffset ~= nil then
-        ok, x, y = pcall(function()
-            return window:GetEffectiveOffset()
-        end)
-    end
-    if (not ok or x == nil or y == nil) and window.GetOffset ~= nil then
+    if window.GetOffset ~= nil then
         ok, x, y = pcall(function()
             return window:GetOffset()
+        end)
+    end
+    if (not ok or x == nil or y == nil) and window.GetEffectiveOffset ~= nil then
+        ok, x, y = pcall(function()
+            return window:GetEffectiveOffset()
         end)
     end
     if ok then

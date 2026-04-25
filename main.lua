@@ -51,7 +51,7 @@ local Ui = modules.ui
 local addon = {
     name = Constants ~= nil and Constants.ADDON_NAME or "Nuzi Fishing",
     author = Constants ~= nil and Constants.ADDON_AUTHOR or "Nuzi",
-    version = Constants ~= nil and Constants.ADDON_VERSION or "1.4.7",
+    version = Constants ~= nil and Constants.ADDON_VERSION or "2.0.0",
     desc = Constants ~= nil and Constants.ADDON_DESC or "Fishing coach HUD"
 }
 
@@ -63,6 +63,10 @@ local updateTicker = Scheduler.CreateTicker({
     max_elapsed_ms = IDLE_UPDATE_INTERVAL_MS * 4
 })
 local events = Events.Create({
+    logger = logger
+})
+local bindingEvents = Events.CreateEventWindow({
+    id = Constants ~= nil and Constants.EVENT_WINDOW_ID or "nuziFishingEvents",
     logger = logger
 })
 
@@ -231,12 +235,13 @@ local function onLoad()
     renderNow()
     events:OnSafe("UPDATE", "UPDATE", onUpdate)
     events:OnSafe("UI_RELOADED", "UI_RELOADED", onUiReloaded)
-    events:OptionalOnSafe("UPDATE_BINDINGS", "UPDATE_BINDINGS", onUpdateBindings)
+    bindingEvents:OptionalOnSafe("UPDATE_BINDINGS", "UPDATE_BINDINGS", onUpdateBindings)
     logger:Info("Loaded v" .. tostring(addon.version))
 end
 
 local function onUnload()
     events:ClearAll()
+    bindingEvents:ClearAll()
     updateTicker:Reset()
     if Ui ~= nil then
         Ui.Unload()
