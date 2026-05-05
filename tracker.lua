@@ -27,20 +27,37 @@ local Tracker = {
 local findLatestCaughtForUnit
 local DEAD_STATE_KEYS = { "dead", "death", "ghost", "isdead", "is_dead" }
 
+local function normalizeUnitId(unitId)
+    local valueType = type(unitId)
+    if valueType == "string" then
+        local text = tostring(unitId):gsub("^%s+", ""):gsub("%s+$", "")
+        if text ~= "" and text ~= "0" then
+            return text
+        end
+    elseif valueType == "number" and unitId ~= 0 then
+        return tostring(unitId)
+    end
+    return nil
+end
+
 local function safeGetUnitId(unit)
     if api.Unit == nil or api.Unit.GetUnitId == nil then
+        return nil
+    end
+    if type(unit) ~= "string" or tostring(unit) == "" then
         return nil
     end
     local ok, value = pcall(function()
         return api.Unit:GetUnitId(unit)
     end)
     if ok then
-        return value
+        return normalizeUnitId(value)
     end
     return nil
 end
 
 local function safeGetUnitInfoById(unitId)
+    unitId = normalizeUnitId(unitId)
     if unitId == nil or api.Unit == nil or api.Unit.GetUnitInfoById == nil then
         return nil
     end
@@ -55,6 +72,9 @@ end
 
 local function safeUnitInfo(unit)
     if api.Unit == nil or api.Unit.UnitInfo == nil then
+        return nil
+    end
+    if type(unit) ~= "string" or tostring(unit) == "" then
         return nil
     end
     local ok, value = pcall(function()

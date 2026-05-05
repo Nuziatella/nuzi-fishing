@@ -43,30 +43,82 @@ pcall(function()
 end)
 
 local HELPER_SCALE_OPTIONS = { 0.8, 1.0, 1.2, 1.4, 1.6 }
-local SETTINGS_ROW_HEIGHT = 26
+local SETTINGS_WINDOW_WIDTH = 640
+local SETTINGS_WINDOW_HEIGHT = 466
+local SETTINGS_CARD_WIDTH = 298
+local SETTINGS_CARD_LEFT = 14
+local SETTINGS_CARD_RIGHT = 328
+local THEME = {
+    panel = { 0.06, 0.05, 0.04, 0.92 },
+    card = { 0.08, 0.07, 0.05, 0.86 },
+    accent = { 0.94, 0.80, 0.48, 0.12 },
+    divider = { 0.88, 0.76, 0.46, 0.16 },
+    title = { 0.96, 0.82, 0.52, 1 },
+    heading = { 0.90, 0.82, 0.66, 1 },
+    text = { 0.86, 0.84, 0.78, 1 },
+    muted = { 0.64, 0.62, 0.56, 1 },
+    good = { 0.72, 0.88, 0.64, 1 },
+    warn = { 1.00, 0.70, 0.42, 1 }
+}
 local applyHelperScale
 local applyCommonWindowBehavior
 local notifySettingsChanged
+local toggleSetting
+local cycleHudMode
 
-local SETTINGS_ROWS = {
-    { label = "Addon", key = "enabled" },
-    { label = "Target HUD", key = "show_target" },
-    { label = "HUD Size", key = "helper_scale", kind = "slider" },
-    { label = "Launcher", key = "session_button_size", kind = "slider" },
-    { label = "HUD Mode", key = "hud_mode", kind = "cycle" },
-    { label = "Fish Name", key = "show_fish_name" },
-    { label = "Status Text", key = "show_status_text" },
-    { label = "Coach", key = "show_coach" },
-    { label = "Coach Hint", key = "show_coach_hint" },
-    { label = "Keybind", key = "show_keybind" },
-    { label = "Prompt Sounds", key = "show_prompt_sounds" },
-    { label = "Timers", key = "show_timers" },
-    { label = "Waiting", key = "show_wait" },
-    { label = "Strength", key = "show_strength" },
-    { label = "Markers", key = "show_markers" },
-    { label = "Auto Catches", key = "show_auto_catches" },
-    { label = "Boat", key = "show_boat" },
-    { label = "Session", key = "show_session" }
+local SETTINGS_GROUPS = {
+    {
+        title = "General",
+        x = SETTINGS_CARD_LEFT,
+        y = 56,
+        h = 180,
+        rows = {
+            { label = "Addon", key = "enabled" },
+            { label = "HUD Mode", key = "hud_mode", kind = "cycle" },
+            { label = "HUD Size", key = "helper_scale", kind = "slider" },
+            { label = "Launcher Size", key = "session_button_size", kind = "slider" },
+            { label = "Launcher", key = "show_session" }
+        }
+    },
+    {
+        title = "Target HUD",
+        x = SETTINGS_CARD_RIGHT,
+        y = 56,
+        h = 242,
+        rows = {
+            { label = "Target HUD", key = "show_target" },
+            { label = "Fish Name", key = "show_fish_name" },
+            { label = "Status Text", key = "show_status_text" },
+            { label = "Coach", key = "show_coach" },
+            { label = "Coach Hint", key = "show_coach_hint" },
+            { label = "Keybind", key = "show_keybind" },
+            { label = "Timers", key = "show_timers" },
+            { label = "Target Buff Icon", key = "show_target_buff_icon" }
+        }
+    },
+    {
+        title = "Tracking",
+        x = SETTINGS_CARD_LEFT,
+        y = 252,
+        h = 180,
+        rows = {
+            { label = "Waiting", key = "show_wait" },
+            { label = "Strength", key = "show_strength" },
+            { label = "Markers", key = "show_markers" },
+            { label = "Auto Catches", key = "show_auto_catches" },
+            { label = "Boat", key = "show_boat" }
+        }
+    },
+    {
+        title = "Session",
+        x = SETTINGS_CARD_RIGHT,
+        y = 314,
+        h = 112,
+        rows = {
+            { label = "Session Panel", key = "show_session_panel" },
+            { label = "Prompt Sounds", key = "show_prompt_sounds" }
+        }
+    }
 }
 
 local function getAlignLeft()
@@ -150,10 +202,6 @@ local function scaledFontSizeForScale(baseSize, scale)
         scaled = 10
     end
     return scaled
-end
-
-local function scaledFontSize(baseSize)
-    return scaledFontSizeForScale(baseSize, getHelperScale())
 end
 
 local function getHelperScaleLabel()
@@ -365,20 +413,6 @@ local function safeCreateEmptyWindow(id)
     end
     local ok, window = pcall(function()
         return api.Interface:CreateEmptyWindow(id)
-    end)
-    if ok then
-        applyCommonWindowBehavior(window)
-        return window
-    end
-    return nil
-end
-
-local function safeCreateWindow(id, title, width, height)
-    if api.Interface == nil or api.Interface.CreateWindow == nil then
-        return nil
-    end
-    local ok, window = pcall(function()
-        return api.Interface:CreateWindow(id, title, width, height)
     end)
     if ok then
         applyCommonWindowBehavior(window)
@@ -984,6 +1018,138 @@ local function createButton(id, parent, text, x, y, width, height, onClick)
     return button
 end
 
+local function addColorFill(parent, color, layer)
+    if parent == nil or type(color) ~= "table" then
+        return nil
+    end
+    local drawable = safeCreateColorDrawable(parent, color[1], color[2], color[3], color[4], layer or "background")
+    if drawable ~= nil then
+        safeAddAnchor(drawable, "TOPLEFT", parent, "TOPLEFT", 0, 0)
+        safeAddAnchor(drawable, "BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    end
+    return drawable
+end
+
+local function addTopBand(parent, height, color)
+    if parent == nil then
+        return nil
+    end
+    local drawable = safeCreateColorDrawable(parent, color[1], color[2], color[3], color[4], "overlay")
+    if drawable ~= nil then
+        safeAddAnchor(drawable, "TOPLEFT", parent, "TOPLEFT", 0, 0)
+        safeAddAnchor(drawable, "TOPRIGHT", parent, "TOPRIGHT", 0, 0)
+        if drawable.SetHeight ~= nil then
+            pcall(function()
+                drawable:SetHeight(height or 36)
+            end)
+        elseif drawable.SetExtent ~= nil then
+            pcall(function()
+                drawable:SetExtent(1, height or 36)
+            end)
+        end
+    end
+    return drawable
+end
+
+local function addDivider(parent, y, left, right)
+    if parent == nil then
+        return nil
+    end
+    local drawable = safeCreateColorDrawable(parent, THEME.divider[1], THEME.divider[2], THEME.divider[3], THEME.divider[4], "overlay")
+    if drawable ~= nil then
+        safeAddAnchor(drawable, "TOPLEFT", parent, "TOPLEFT", left or 12, y or 36)
+        safeAddAnchor(drawable, "TOPRIGHT", parent, "TOPRIGHT", right or -12, y or 36)
+        if drawable.SetHeight ~= nil then
+            pcall(function()
+                drawable:SetHeight(1)
+            end)
+        elseif drawable.SetExtent ~= nil then
+            pcall(function()
+                drawable:SetExtent(1, 1)
+            end)
+        end
+    end
+    return drawable
+end
+
+local function createPanel(id, parent, x, y, width, height, backgroundColor)
+    local panel = safeCreateWidget("emptywidget", id, parent)
+    if panel == nil then
+        return nil
+    end
+    safeAnchor(panel, "TOPLEFT", parent, "TOPLEFT", x, y)
+    safeSetExtent(panel, width, height)
+    addColorFill(panel, backgroundColor or THEME.card, "background")
+    safeSetVisible(panel, true)
+    return panel
+end
+
+local function createCard(id, parent, title, x, y, width, height)
+    local card = createPanel(id, parent, x, y, width, height, THEME.card)
+    if card == nil then
+        return nil
+    end
+    addTopBand(card, 36, THEME.accent)
+    addDivider(card, 36, 12, -12)
+    local titleLabel = createLabel(id .. "Title", card, 14, 10, width - 28, 18, 14, getAlignLeft(), THEME.heading)
+    safeSetText(titleLabel, title)
+    return card
+end
+
+local function setButtonLabelColor(button, color)
+    if button == nil or button.style == nil or button.style.SetColor == nil or type(color) ~= "table" then
+        return
+    end
+    pcall(function()
+        button.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+    end)
+end
+
+local function createSettingsToggle(parent, id, title, settingKey, x, y)
+    local label = createLabel(id .. "Label", parent, x, y + 4, 160, 20, 13, getAlignLeft(), THEME.text)
+    safeSetText(label, title)
+    local button = createButton(id .. "Button", parent, "", x + 180, y, 82, 22, function()
+        if settingKey == "hud_mode" then
+            cycleHudMode()
+        else
+            toggleSetting(settingKey)
+        end
+    end)
+    Ui.settings_controls[settingKey] = button
+    return button
+end
+
+local function createSettingsSlider(parent, id, title, settingKey, x, y)
+    local label = createLabel(id .. "Label", parent, x, y + 4, 112, 20, 13, getAlignLeft(), THEME.text)
+    safeSetText(label, title)
+    local valueLabel = createLabel(id .. "Value", parent, x + 246, y + 4, 40, 20, 13, getAlignCenter(), THEME.title)
+    local slider = nil
+    if settingKey == "helper_scale" then
+        slider = createSlider(id .. "Slider", parent, x + 118, y, 120, 80, 160, 10)
+        if slider ~= nil and slider.SetHandler ~= nil then
+            slider:SetHandler("OnSliderChanged", function(_, raw)
+                local numeric = roundNumber(raw)
+                safeSetText(valueLabel, tostring(numeric) .. "%")
+                setHelperScale((tonumber(numeric) or 100) / 100)
+            end)
+        end
+    elseif settingKey == "session_button_size" then
+        slider = createSlider(id .. "Slider", parent, x + 118, y, 120, 32, 96, 1)
+        if slider ~= nil and slider.SetHandler ~= nil then
+            slider:SetHandler("OnSliderChanged", function(_, raw)
+                local numeric = roundNumber(raw)
+                safeSetText(valueLabel, tostring(numeric))
+                setSessionButtonSize(numeric)
+            end)
+        end
+    end
+    Ui.settings_sliders[settingKey] = {
+        slider = slider,
+        value = valueLabel
+    }
+    return slider
+end
+
 local function createIcon(id, parent)
     if type(CreateItemIconButton) ~= "function" or parent == nil then
         return nil
@@ -1015,35 +1181,15 @@ notifySettingsChanged = function()
     end
 end
 
-local function toggleSetting(settingKey)
+toggleSetting = function(settingKey)
     Shared.ToggleSetting(settingKey)
     notifySettingsChanged()
 end
 
-local function cycleHudMode()
+cycleHudMode = function()
     local settings = Shared.EnsureSettings()
     local current = getHudMode()
     settings.hud_mode = current == "compact" and "full" or "compact"
-    Shared.SaveSettings()
-    applyHelperScale()
-    notifySettingsChanged()
-end
-
-local function cycleHelperScale()
-    local settings = Shared.EnsureSettings()
-    local current = normalizeHelperScale(settings.helper_scale)
-    local index = 1
-    for optionIndex, optionValue in ipairs(HELPER_SCALE_OPTIONS) do
-        if optionValue == current then
-            index = optionIndex
-            break
-        end
-    end
-    index = index + 1
-    if index > #HELPER_SCALE_OPTIONS then
-        index = 1
-    end
-    settings.helper_scale = HELPER_SCALE_OPTIONS[index]
     Shared.SaveSettings()
     applyHelperScale()
     notifySettingsChanged()
@@ -1072,72 +1218,6 @@ local function deleteFishingSession(sessionId)
     end
     Shared.DeleteFishingSession(sessionId)
     notifySettingsChanged()
-end
-
-local function createSettingsRow(parent, rowIndex, title, settingKey)
-    local top = 56 + ((rowIndex - 1) * SETTINGS_ROW_HEIGHT)
-    local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 160, 24, 14, getAlignLeft())
-    safeSetText(label, title)
-    local button = createButton(
-        "NuziFishingSettingsButton" .. tostring(rowIndex),
-        parent,
-        "",
-        194,
-        top,
-        92,
-        24,
-        function()
-            if settingKey == "helper_scale" then
-                cycleHelperScale()
-            elseif settingKey == "hud_mode" then
-                cycleHudMode()
-            else
-                toggleSetting(settingKey)
-            end
-        end
-    )
-    Ui.settings_controls[settingKey] = button
-end
-
-local function createSettingsSliderRow(parent, rowIndex, title, settingKey)
-    local top = 56 + ((rowIndex - 1) * SETTINGS_ROW_HEIGHT)
-    local label = createLabel("NuziFishingSettingsLabel" .. tostring(rowIndex), parent, 24, top + 4, 86, 24, 14, getAlignLeft())
-    safeSetText(label, title)
-    local valueLabel = createLabel(
-        "NuziFishingSettingsSliderValue" .. tostring(rowIndex),
-        parent,
-        284,
-        top + 4,
-        32,
-        24,
-        13,
-        getAlignCenter(),
-        { 0.95, 0.95, 0.95, 1 }
-    )
-    local slider = nil
-    if settingKey == "helper_scale" then
-        slider = createSlider("NuziFishingSettingsSlider" .. tostring(rowIndex), parent, 110, top, 170, 80, 160, 10)
-        if slider ~= nil and slider.SetHandler ~= nil then
-            slider:SetHandler("OnSliderChanged", function(_, raw)
-                local numeric = roundNumber(raw)
-                safeSetText(valueLabel, tostring(numeric) .. "%")
-                setHelperScale((tonumber(numeric) or 100) / 100)
-            end)
-        end
-    elseif settingKey == "session_button_size" then
-        slider = createSlider("NuziFishingSettingsSlider" .. tostring(rowIndex), parent, 110, top, 170, 32, 96, 1)
-        if slider ~= nil and slider.SetHandler ~= nil then
-            slider:SetHandler("OnSliderChanged", function(_, raw)
-                local numeric = roundNumber(raw)
-                safeSetText(valueLabel, tostring(numeric))
-                setSessionButtonSize(numeric)
-            end)
-        end
-    end
-    Ui.settings_sliders[settingKey] = {
-        slider = slider,
-        value = valueLabel
-    }
 end
 
 local function createTargetHud()
@@ -1257,50 +1337,50 @@ local function createSessionWindow()
     if window == nil then
         return
     end
-    safeSetExtent(window, 360, 348)
+    safeSetExtent(window, 380, 360)
     safeSetVisible(window, false)
     Ui.session_window = window
     applySessionPosition()
     enableSessionDrag(window)
-    local bg = safeCreateColorDrawable(window, 0.05, 0.05, 0.05, 0.78, "background")
-    safeAddAnchor(bg, "TOPLEFT", window, "TOPLEFT", -10, -8)
-    safeAddAnchor(bg, "BOTTOMRIGHT", window, "BOTTOMRIGHT", 10, 8)
-    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 0, 0, 260, 22, 16, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.session_mode_button = createButton("NuziFishingHudModeButton", window, getHudModeButtonLabel(), 0, 28, 60, 24, cycleHudMode)
+    addColorFill(window, THEME.panel, "background")
+    addTopBand(window, 34, THEME.accent)
+    addDivider(window, 34, 12, -12)
+    Ui.session_title = createLabel("NuziFishingSessionTitle", window, 14, 8, 220, 22, 16, getAlignLeft(), THEME.title)
+    Ui.session_mode_button = createButton("NuziFishingHudModeButton", window, getHudModeButtonLabel(), 14, 42, 70, 24, cycleHudMode)
     safeSetText(Ui.session_mode_button, getHudModeButtonLabel())
-    Ui.session_settings_button = createButton("NuziFishingSessionSettings", window, "C", 318, 0, 30, 24, function()
+    Ui.session_settings_button = createButton("NuziFishingSessionSettings", window, "Settings", 286, 7, 76, 24, function()
         Ui.ToggleSettings()
     end)
-    Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 198, 28, 72, 24, startFishingSession)
-    Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 276, 28, 72, 24, endFishingSession)
-    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 0, 62, 160, 18, 14, getAlignLeft(), { 1, 1, 1, 1 })
-    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 0, 80, 160, 18, 14, getAlignLeft(), { 1, 0.9, 0.5, 1 })
-    Ui.session_labels.rate = createLabel("NuziFishingSessionRate", window, 0, 98, 160, 18, 14, getAlignLeft(), { 0.9, 0.98, 0.72, 1 })
-    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 170, 62, 160, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
-    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 170, 80, 160, 18, 14, getAlignLeft(), { 1, 0.7, 0.4, 1 })
-    Ui.session_labels.fish_header = createLabel("NuziFishingSessionFishHeader", window, 0, 126, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    Ui.session_buttons.start = createButton("NuziFishingSessionStart", window, "Start", 204, 42, 72, 24, startFishingSession)
+    Ui.session_buttons.finish = createButton("NuziFishingSessionFinish", window, "End", 284, 42, 72, 24, endFishingSession)
+    Ui.session_labels.elapsed = createLabel("NuziFishingSessionElapsed", window, 14, 78, 160, 18, 14, getAlignLeft(), THEME.text)
+    Ui.session_labels.catches = createLabel("NuziFishingSessionCatches", window, 14, 96, 160, 18, 14, getAlignLeft(), THEME.title)
+    Ui.session_labels.rate = createLabel("NuziFishingSessionRate", window, 14, 114, 160, 18, 14, getAlignLeft(), THEME.good)
+    Ui.session_labels.active = createLabel("NuziFishingSessionActive", window, 184, 78, 174, 18, 14, getAlignLeft(), { 1, 0.8, 0.8, 1 })
+    Ui.session_labels.marked = createLabel("NuziFishingSessionMarked", window, 184, 96, 174, 18, 14, getAlignLeft(), THEME.warn)
+    Ui.session_labels.fish_header = createLabel("NuziFishingSessionFishHeader", window, 14, 142, 180, 18, 13, getAlignLeft(), THEME.heading)
     safeSetText(Ui.session_labels.fish_header, "Current Session Fish")
     for index = 1, 4 do
         Ui.session_fish_labels[index] = createLabel(
             "NuziFishingSessionFish" .. tostring(index),
             window,
-            0,
-            148 + ((index - 1) * 18),
-            330,
+            14,
+            164 + ((index - 1) * 18),
+            340,
             18,
             13,
             getAlignLeft(),
-            { 0.96, 0.96, 0.96, 1 }
+            THEME.text
         )
     end
-    Ui.session_labels.history_header = createLabel("NuziFishingSessionHistoryHeader", window, 0, 236, 160, 18, 13, getAlignLeft(), { 0.8, 0.92, 1, 1 })
+    Ui.session_labels.history_header = createLabel("NuziFishingSessionHistoryHeader", window, 14, 248, 160, 18, 13, getAlignLeft(), THEME.heading)
     safeSetText(Ui.session_labels.history_header, "Recent Sessions")
     for index = 1, 4 do
         local rowIndex = index
-        local rowY = 258 + ((index - 1) * 22)
-        local title = createLabel("NuziFishingSessionHistoryTitle" .. tostring(index), window, 0, rowY, 228, 16, 13, getAlignLeft(), { 1, 1, 1, 1 })
-        local detail = createLabel("NuziFishingSessionHistoryDetail" .. tostring(index), window, 0, rowY + 14, 280, 16, 12, getAlignLeft(), { 0.85, 0.85, 0.85, 1 })
-        local remove = createButton("NuziFishingSessionDelete" .. tostring(index), window, "X", 314, rowY + 2, 30, 22, function()
+        local rowY = 270 + ((index - 1) * 22)
+        local title = createLabel("NuziFishingSessionHistoryTitle" .. tostring(index), window, 14, rowY, 238, 16, 13, getAlignLeft(), THEME.text)
+        local detail = createLabel("NuziFishingSessionHistoryDetail" .. tostring(index), window, 14, rowY + 14, 292, 16, 12, getAlignLeft(), THEME.muted)
+        local remove = createButton("NuziFishingSessionDelete" .. tostring(index), window, "X", 330, rowY + 2, 30, 22, function()
             local row = Ui.session_history_rows[rowIndex]
             if row ~= nil then
                 deleteFishingSession(row.session_id)
@@ -1364,22 +1444,50 @@ local function createSettingsWindow()
         return
     end
 
-    local height = 72 + (#SETTINGS_ROWS * SETTINGS_ROW_HEIGHT)
-    local window = safeCreateWindow("NuziFishingSettings", Constants.ADDON_NAME, 320, height)
+    local window = safeCreateEmptyWindow("NuziFishingSettings")
     if window == nil then
         return
     end
     applyCommonWindowBehavior(window)
+    safeSetExtent(window, SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
     safeSetVisible(window, false)
     Ui.settings_window = window
     applySettingsWindowPosition()
     enableSettingsWindowDrag(window)
 
-    for index, row in ipairs(SETTINGS_ROWS) do
-        if row.kind == "slider" then
-            createSettingsSliderRow(window, index, row.label, row.key)
-        else
-            createSettingsRow(window, index, row.label, row.key)
+    addColorFill(window, THEME.panel, "background")
+    addTopBand(window, 44, THEME.accent)
+    addDivider(window, 44, 14, -14)
+
+    local title = createLabel("NuziFishingSettingsTitle", window, 18, 12, 220, 20, 16, getAlignLeft(), THEME.title)
+    safeSetText(title, "Nuzi Fishing")
+    local subtitle = createLabel("NuziFishingSettingsSubtitle", window, 158, 14, 320, 18, 12, getAlignLeft(), THEME.muted)
+    safeSetText(subtitle, "HUD, tracking, session, and launcher settings")
+    createButton("NuziFishingSettingsClose", window, "X", SETTINGS_WINDOW_WIDTH - 42, 8, 28, 24, function()
+        safeSetVisible(Ui.settings_window, false)
+    end)
+
+    for groupIndex, group in ipairs(SETTINGS_GROUPS) do
+        local card = createCard(
+            "NuziFishingSettingsCard" .. tostring(groupIndex),
+            window,
+            group.title,
+            group.x,
+            group.y,
+            SETTINGS_CARD_WIDTH,
+            group.h
+        )
+        if card ~= nil then
+            local y = 46
+            for rowIndex, row in ipairs(group.rows or {}) do
+                local id = "NuziFishingSettings" .. tostring(groupIndex) .. "_" .. tostring(rowIndex)
+                if row.kind == "slider" then
+                    createSettingsSlider(card, id, row.label, row.key, 14, y)
+                else
+                    createSettingsToggle(card, id, row.label, row.key, 14, y)
+                end
+                y = y + 24
+            end
         end
     end
 
@@ -1402,11 +1510,14 @@ function Ui.RefreshSettings()
     for key, button in pairs(Ui.settings_controls) do
         if button ~= nil and button.SetText ~= nil then
             if key == "helper_scale" then
-                button:SetText(getHelperScaleLabel())
+                safeSetText(button, getHelperScaleLabel())
+                setButtonLabelColor(button, THEME.title)
             elseif key == "hud_mode" then
-                button:SetText(getHudModeLabel())
+                safeSetText(button, getHudModeLabel())
+                setButtonLabelColor(button, THEME.title)
             else
-                button:SetText(settings[key] and "On" or "Off")
+                safeSetText(button, settings[key] and "On" or "Off")
+                setButtonLabelColor(button, settings[key] and THEME.good or THEME.muted)
             end
         end
     end

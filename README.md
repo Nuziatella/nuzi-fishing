@@ -71,6 +71,7 @@ You can:
 
 - move the launcher icon independently from the session panel
 - resize the launcher icon
+- use the grouped settings window for General, Target HUD, Tracking, and Session options
 - move the session panel and settings window with `Shift + drag`
 
 ## Notes
