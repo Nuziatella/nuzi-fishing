@@ -261,36 +261,6 @@ local function getActionHotkey(buffId)
     return nil
 end
 
-local function playActionSound(buffId)
-    local settings = Shared.EnsureSettings()
-    if not settings.show_prompt_sounds then
-        return
-    end
-
-    local buffInfo = Constants.ACTION_BUFF_INFO[buffId]
-    if type(buffInfo) ~= "table" or type(buffInfo.sound_names) ~= "table" then
-        return
-    end
-    if X2Sound ~= nil and X2Sound.PlayUISound ~= nil then
-        for _, soundName in ipairs(buffInfo.sound_names) do
-            if type(soundName) == "string" and soundName ~= "" then
-                local soundId = 0
-                pcall(function()
-                    soundId = X2Sound:PlayUISound(soundName, true) or 0
-                end)
-                if tonumber(soundId) == nil or tonumber(soundId) <= 0 then
-                    pcall(function()
-                        soundId = X2Sound:PlayUISound(soundName) or 0
-                    end)
-                end
-                if tonumber(soundId) ~= nil and tonumber(soundId) > 0 then
-                    return
-                end
-            end
-        end
-    end
-end
-
 local function isTruthyStateValue(value)
     if value == nil or value == false or value == 0 or value == "0" or value == "" then
         return false
@@ -700,9 +670,6 @@ local function buildTargetState(nowMs)
 
     if actionBuff ~= nil then
         local buffInfo = Constants.ACTION_BUFF_INFO[actionBuff.buff_id]
-        if Tracker.last_action_buff_id ~= actionBuff.buff_id then
-            playActionSound(actionBuff.buff_id)
-        end
         Tracker.last_action_buff_id = actionBuff.buff_id
         if settings.show_target_buff_icon and actionBuff.path ~= nil then
             targetState.icon_path = actionBuff.path

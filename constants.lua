@@ -3,7 +3,7 @@ local Constants = {}
 Constants.ADDON_ID = "nuzi-fishing"
 Constants.ADDON_NAME = "Nuzi Fishing"
 Constants.ADDON_AUTHOR = "Nuzi"
-Constants.ADDON_VERSION = "2.0.1"
+Constants.ADDON_VERSION = "2.0.2"
 Constants.ADDON_DESC = "Fishing coach HUD"
 Constants.EVENT_WINDOW_ID = "nuziFishingEvents"
 Constants.WARNING_TIME_SECONDS = 10
@@ -47,12 +47,7 @@ Constants.ACTION_BUFF_INFO = {
         coach = "REEL IN",
         hint = "There's your opening. Rob it blind.",
         hotkey_actions = { "fist_fishing_action_reelin" },
-        emphasis = "reel_in",
-        sound_names = {
-            "event_item_added",
-            "event_explored_region",
-            "event_mail_alarm"
-        }
+        emphasis = "reel_in"
     },
     [5267] = {
         label = "Give Slack",
@@ -65,12 +60,7 @@ Constants.ACTION_BUFF_INFO = {
         coach = "BIG REEL",
         hint = "Big window. Make it regret spawning.",
         hotkey_actions = { "fist_fishing_action_up", "fist_fishing_action_reelin" },
-        emphasis = "big_reel_in",
-        sound_names = {
-            "high_rank_achievement",
-            "event_quest_completed_daily",
-            "event_mail_alarm"
-        }
+        emphasis = "big_reel_in"
     }
 }
 
@@ -131,7 +121,6 @@ Constants.DEFAULT_SETTINGS = {
     show_coach = true,
     show_coach_hint = true,
     show_keybind = true,
-    show_prompt_sounds = true,
     show_markers = true,
     show_auto_catches = true,
     show_boat = true,

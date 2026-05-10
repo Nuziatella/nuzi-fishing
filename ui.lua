@@ -115,8 +115,7 @@ local SETTINGS_GROUPS = {
         y = 314,
         h = 112,
         rows = {
-            { label = "Session Panel", key = "show_session_panel" },
-            { label = "Prompt Sounds", key = "show_prompt_sounds" }
+            { label = "Session Panel", key = "show_session_panel" }
         }
     }
 }
