@@ -159,7 +159,7 @@ local function safeGetOverHeadMarkerUnitId(markerIndex)
         return api.Unit:GetOverHeadMarkerUnitId(markerIndex)
     end)
     if ok then
-        return value
+        return normalizeUnitId(value)
     end
     return nil
 end
@@ -372,6 +372,16 @@ local function isOwnedByPlayer(unitInfo, playerName)
         and type(unitInfo) == "table"
         and type(unitInfo.owner_name) == "string"
         and unitInfo.owner_name == playerName
+end
+
+local function isVisibleOwnerMarkedTarget(unitInfo, ownersMarkBuff, playerName)
+    if ownersMarkBuff == nil then
+        return false
+    end
+    if type(unitInfo) ~= "table" or type(unitInfo.owner_name) ~= "string" or unitInfo.owner_name == "" then
+        return true
+    end
+    return isOwnedByPlayer(unitInfo, playerName)
 end
 
 local function targetHasDeadState(unitInfo, modifierInfo)
@@ -601,7 +611,8 @@ local function buildTargetState(nowMs)
         end
     end
 
-    if ownersMarkBuff ~= nil and isOwnedByPlayer(targetInfo, playerName) then
+    local targetOwnerMarked = isVisibleOwnerMarkedTarget(targetInfo, ownersMarkBuff, playerName)
+    if targetOwnerMarked then
         Tracker.boat_expiration_ms = nowMs + (tonumber(ownersMarkBuff.timeLeft) or 0)
     end
 
@@ -628,6 +639,7 @@ local function buildTargetState(nowMs)
         actionBuff = nil
     end
     local targetJustDied = targetOwnedByPlayer
+        or targetOwnerMarked
         or targetLooksDead
         or (fishHealth ~= nil and fishHealth <= 0)
         or (fishHealth == nil and not isNewTarget and wasAliveBefore)

@@ -51,7 +51,7 @@ local Ui = modules.ui
 local addon = {
     name = Constants ~= nil and Constants.ADDON_NAME or "Nuzi Fishing",
     author = Constants ~= nil and Constants.ADDON_AUTHOR or "Nuzi",
-    version = Constants ~= nil and Constants.ADDON_VERSION or "2.0.2",
+    version = Constants ~= nil and Constants.ADDON_VERSION or "2.0.3",
     desc = Constants ~= nil and Constants.ADDON_DESC or "Fishing coach HUD"
 }
 

@@ -81,4 +81,4 @@ You can:
 - Session, launcher, and settings window positions are saved through reloads and relogs.
 - Settings are stored in `.data/settings.txt` so updates do not ship over someone else's layout.
 
-2.0.0
+2.0.3
